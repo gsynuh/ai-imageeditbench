@@ -20,7 +20,11 @@ import {
 } from "../lib/idb";
 import { createId, debounce } from "../lib/utils";
 import type { OpenRouterAttachment } from "../lib/openrouter";
-import { requestCompletionFull, streamCompletion } from "../lib/openrouter";
+import {
+  requestCompletionFull,
+  streamCompletion,
+  fetchGenerationCost,
+} from "../lib/openrouter";
 import {
   blobToDataUrl,
   canvasToBlob,
@@ -36,14 +40,10 @@ import { calculateModelCostUsd } from "../lib/cost";
 import { $settings, setSelectedModels } from "./settingsStore";
 import { $activeSessionId, setActiveSession } from "./appStore";
 import { $models } from "./modelsStore";
-import { inferModelModalities } from "../lib/modelMeta";
+import { getModelProvider, inferModelModalities } from "../lib/modelMeta";
 import { getMatchingDefault } from "./defaultsStore";
-import {
-  $uiState,
-  resetHistoryPagination,
-  setHistoryHasMore,
-  toggleCollapsedMessage,
-} from "./uiStore";
+import { $uiState, resetHistoryPagination, setHistoryHasMore } from "./uiStore";
+import { showVerificationDialog } from "./verificationStore";
 import type { InputState } from "./inputStore";
 import type { ImageAsset } from "../types/db";
 
@@ -122,15 +122,16 @@ async function ensureStatsForModel(sessionId: string, modelId: string) {
 async function buildOpenRouterMessages(
   sessionId: string,
   modelId: string,
+  runIndex?: number,
 ): Promise<OpenRouterMessage[]> {
-  const messages = await getMessages(sessionId, modelId);
+  const allMessages = await getMessages(sessionId, modelId);
+  // Filter messages for this specific run - each run has its own copies
+  // If runIndex is undefined, only include messages without runIndex (legacy support)
+  const messages =
+    runIndex !== undefined
+      ? allMessages.filter((msg) => msg.runIndex === runIndex)
+      : allMessages.filter((msg) => msg.runIndex === undefined);
   const output: OpenRouterMessage[] = [];
-
-  // Check for matching default and prepend system message if present and set
-  const matchingDefault = getMatchingDefault(modelId);
-  const hasSystemMessage =
-    matchingDefault?.systemMessageSet && matchingDefault?.systemMessage?.trim();
-  const systemMessageAdded = new Set<string>();
 
   for (const message of messages) {
     if (message.status === "streaming") continue;
@@ -141,12 +142,6 @@ async function buildOpenRouterMessages(
       message.imageIds.length === 0
     ) {
       continue;
-    }
-
-    // Prepend system message from default if present and not already added
-    if (hasSystemMessage && !systemMessageAdded.has(modelId)) {
-      output.push({ role: "system", content: matchingDefault!.systemMessage! });
-      systemMessageAdded.add(modelId);
     }
 
     if (message.imageIds.length === 0) {
@@ -172,20 +167,69 @@ async function buildOpenRouterMessages(
     output.push({ role, content: parts });
   }
 
-  // If no messages yet but we have a system message, add it
-  if (
-    hasSystemMessage &&
-    output.length === 0 &&
-    !systemMessageAdded.has(modelId)
-  ) {
-    output.push({ role: "system", content: matchingDefault!.systemMessage! });
-  }
-
   return output;
 }
 
 async function getImageAsset(id: string): Promise<ImageAsset | null> {
   return await getImage(id);
+}
+
+/**
+ * Ensures that a system message from defaults exists in the database for a given model and run.
+ * This allows system messages to appear in the UI and persist across message sends.
+ * Each run gets its own copy of the system message.
+ */
+async function ensureDefaultSystemMessage(
+  session: Session,
+  modelId: string,
+  runIndex?: number,
+): Promise<void> {
+  // Check if a system message already exists for this model and run
+  const existingMessages = await getMessages(session.id, modelId);
+  const hasSystemMessage = existingMessages.some(
+    (msg) => msg.role === "system" && msg.runIndex === runIndex,
+  );
+  if (hasSystemMessage) {
+    return; // Already exists, don't create another
+  }
+
+  // Check for matching default with system message
+  const matchingDefault = getMatchingDefault(modelId);
+  const hasSystemMessageDefault =
+    matchingDefault?.systemMessageSet && matchingDefault?.systemMessage?.trim();
+
+  if (!hasSystemMessageDefault) {
+    return; // No system message default for this model
+  }
+
+  // Create the system message for this run
+  const now = Date.now();
+  const systemMessage: Message = {
+    id: createId("message"),
+    sessionId: session.id,
+    modelId,
+    role: "system",
+    contentText: matchingDefault!.systemMessage!,
+    imageIds: [],
+    createdAt: now,
+    updatedAt: now,
+    status: "complete",
+    runIndex, // Each run gets its own copy
+  };
+  await saveMessage(systemMessage);
+
+  // Add to UI state
+  // System messages are revealed by default (not collapsed)
+  const state = $activeSession.get();
+  const list = state.messagesByModel[modelId] ?? [];
+  // Insert at the beginning so it appears first
+  $activeSession.set({
+    ...state,
+    messagesByModel: {
+      ...state.messagesByModel,
+      [modelId]: [systemMessage, ...list],
+    },
+  });
 }
 
 function updateSessionTotals(
@@ -234,6 +278,8 @@ export async function initializeSession() {
     streamingByModel: {},
     errorsByModel: {},
   });
+
+  // System messages will be created when runs start, not during initialization
 }
 
 export async function loadSession(
@@ -258,11 +304,7 @@ export async function loadSession(
       streamingByModel[modelId] = true;
     }
 
-    messages.forEach((message) => {
-      if (message.role === "system" || message.role === "tool") {
-        toggleCollapsedMessage(message.id, true);
-      }
-    });
+    // Messages are shown by default; users can hide them with the eye icon
   }
   const stats = await getStats(session.id);
   const statsByModel = stats.reduce<Record<string, SessionStats>>(
@@ -418,9 +460,7 @@ async function addMessageToModel({
     runIndex,
   };
   await saveMessage(message);
-  if (role === "system" || role === "tool") {
-    toggleCollapsedMessage(message.id, true);
-  }
+  // Messages are shown by default; users can hide them with the eye icon
   // Reasoning and thinking blocks are expanded by default to show streaming content
   // Users can collapse them manually if desired
   const state = $activeSession.get();
@@ -507,18 +547,34 @@ export async function sendMessageToAll(input: InputState, size = 512) {
     const id = await saveImageFromFile(pending.file, pending.size ?? size);
     imageIds.push(id);
   }
+  const multiplier = input.multiplier ?? 1;
+
+  // Ensure system messages exist for each run BEFORE creating user messages
+  // This ensures system messages appear first and have earlier timestamps
   await Promise.all(
-    targetModelIds.map((modelId) =>
-      addMessageToModel({
-        session,
-        modelId,
-        role: input.role,
-        contentText: input.text,
-        imageIds,
-      }),
+    targetModelIds.flatMap((modelId) =>
+      Array.from({ length: multiplier }, (_, index) =>
+        ensureDefaultSystemMessage(session, modelId, index + 1),
+      ),
     ),
   );
-  const multiplier = input.multiplier ?? 1;
+
+  // Duplicate user messages for each run - each run gets its own copy
+  await Promise.all(
+    targetModelIds.flatMap((modelId) =>
+      Array.from({ length: multiplier }, (_, index) =>
+        addMessageToModel({
+          session,
+          modelId,
+          role: input.role,
+          contentText: input.text,
+          imageIds,
+          runIndex: index + 1, // Each run gets its own copy
+        }),
+      ),
+    ),
+  );
+
   await Promise.all(
     targetModelIds.flatMap((modelId) =>
       Array.from({ length: multiplier }, (_, index) =>
@@ -539,7 +595,15 @@ async function requestCompletionForModel(
 ) {
   const settings = $settings.get();
   if (!settings.apiKey) return;
-  const requestMessages = await buildOpenRouterMessages(session.id, modelId);
+
+  // Ensure system message exists for this run
+  await ensureDefaultSystemMessage(session, modelId, runIndex);
+
+  const requestMessages = await buildOpenRouterMessages(
+    session.id,
+    modelId,
+    runIndex,
+  );
   const assistantMessage = await addMessageToModel({
     session,
     modelId,
@@ -624,16 +688,18 @@ async function requestCompletionForModel(
   const temperatureSet = matchingDefault?.temperatureSet ?? false;
   const outputFormat = matchingDefault?.outputFormat; // May be undefined
   const outputFormatSet = matchingDefault?.outputFormatSet ?? false;
+  const imageAspectRatio = matchingDefault?.imageAspectRatio;
+  const imageAspectRatioSet = matchingDefault?.imageAspectRatioSet ?? false;
+  const imageSize = matchingDefault?.imageSize;
+  const imageSizeSet = matchingDefault?.imageSizeSet ?? false;
 
   // Build payload - exclude unsupported parameters for image-only models
   const payload: Record<string, unknown> = {
     model: modelId,
     messages: requestMessages,
     modalities,
-    // Request usage data for cost tracking
-    includeUsage: true,
-    include_usage: true,
-    stream_options: { include_usage: true },
+    // Request usage data for cost tracking (OpenRouter format)
+    usage: { include: true },
   };
 
   // Request reasoning/thinking output for models that support it (e.g., Gemini, o1)
@@ -695,6 +761,26 @@ async function requestCompletionForModel(
     payload.output_format = outputFormat;
   }
 
+  // Add Gemini image generation hints only when image output is enabled.
+  // OpenRouter currently documents image_config for Gemini image-gen models.
+  const overrideImageConfig = normalizedOverrides.image_config;
+  const isGeminiImageConfigModel =
+    getModelProvider(modelId) === "google" && modalities.includes("image");
+  if (overrideImageConfig && typeof overrideImageConfig === "object") {
+    payload.image_config = overrideImageConfig;
+  } else if (isGeminiImageConfigModel) {
+    const imageConfig: Record<string, string> = {};
+    if (imageAspectRatioSet && imageAspectRatio) {
+      imageConfig.aspect_ratio = imageAspectRatio;
+    }
+    if (imageSizeSet && imageSize) {
+      imageConfig.image_size = imageSize;
+    }
+    if (Object.keys(imageConfig).length > 0) {
+      payload.image_config = imageConfig;
+    }
+  }
+
   // Add any other custom parameters from overrides (but exclude the ones we already handled)
   Object.entries(normalizedOverrides).forEach(([key, value]) => {
     if (
@@ -707,6 +793,7 @@ async function requestCompletionForModel(
       key !== "presence_penalty" &&
       key !== "modalities" &&
       key !== "output_format" &&
+      key !== "image_config" &&
       value !== undefined
     ) {
       payload[key] = value;
@@ -733,11 +820,13 @@ async function requestCompletionForModel(
   let usage: {
     prompt_tokens?: number;
     completion_tokens?: number;
-    total_cost?: number;
+    cost?: number;
   } = {};
+  let requestId: string | null = null;
   let sawOutput = false;
   let abortForFallback = false;
   let fallbackRan = false;
+  let costFromStream = false;
   const pendingAttachments: OpenRouterAttachment[] = [];
   const pendingImageUrls: string[] = [];
   let lastReceivedImageUrl: string | null = null;
@@ -799,11 +888,9 @@ async function requestCompletionForModel(
 
     const promptTokens = toNumber(usage.prompt_tokens) ?? 0;
     const completionTokens = toNumber(usage.completion_tokens) ?? 0;
+    let calculatedCost = toNumber(usage.cost) ?? 0;
 
-    // Calculate cost: use API-provided total_cost, or calculate from model pricing.
-    // For image models, include per-image and per-request pricing.
-    let calculatedCost = toNumber(usage.total_cost) ?? 0;
-    if (!calculatedCost) {
+    if (!calculatedCost && (promptTokens || completionTokens)) {
       const models = $models.get();
       const modelInfo = models.find((m) => m.id === modelId);
       calculatedCost = calculateModelCostUsd({
@@ -811,14 +898,6 @@ async function requestCompletionForModel(
         promptTokens,
         completionTokens,
         outputImages: assistantMessage.imageIds.length,
-      });
-    }
-
-    if (import.meta.env.DEV) {
-      console.debug(`[Session] Finalizing stats for ${modelId}:`, {
-        previousStats: stats,
-        usage,
-        calculatedCost,
       });
     }
 
@@ -866,34 +945,23 @@ async function requestCompletionForModel(
         const normalized = {
           prompt_tokens: toNumber(result.usage.prompt_tokens),
           completion_tokens: toNumber(result.usage.completion_tokens),
-          total_cost: toNumber(result.usage.total_cost),
+          cost: toNumber(result.usage.cost),
         };
         usage = {
           prompt_tokens: normalized.prompt_tokens ?? usage.prompt_tokens,
           completion_tokens:
             normalized.completion_tokens ?? usage.completion_tokens,
-          total_cost: normalized.total_cost ?? usage.total_cost,
+          cost: normalized.cost ?? usage.cost,
         };
-        // Calculate cost if not provided
-        if (
-          !usage.total_cost &&
-          (usage.prompt_tokens || usage.completion_tokens)
-        ) {
+        if (!usage.cost && (usage.prompt_tokens || usage.completion_tokens)) {
           const models = $models.get();
           const modelInfo = models.find((m) => m.id === modelId);
-          if (modelInfo?.pricing) {
-            const promptPricePerM = toNumber(modelInfo.pricing.prompt) ?? 0;
-            const completionPricePerM =
-              toNumber(modelInfo.pricing.completion) ?? 0;
-            const requestPrice = toNumber(modelInfo.pricing.request) ?? 0;
-            const promptCost =
-              ((usage.prompt_tokens ?? 0) * promptPricePerM) / 1_000_000;
-            const completionCost =
-              ((usage.completion_tokens ?? 0) * completionPricePerM) /
-              1_000_000;
-            const requestCost = requestPrice;
-            usage.total_cost = promptCost + completionCost + requestCost;
-          }
+          usage.cost = calculateModelCostUsd({
+            pricing: modelInfo?.pricing,
+            promptTokens: usage.prompt_tokens ?? 0,
+            completionTokens: usage.completion_tokens ?? 0,
+            outputImages: assistantMessage.imageIds.length,
+          });
         }
       }
       // Always set contentText, even if empty string
@@ -1107,20 +1175,30 @@ async function requestCompletionForModel(
         }
       },
       onUsage: (nextUsage) => {
-        if (import.meta.env.DEV) {
-          console.debug(`[Session] Usage update for ${modelId}:`, nextUsage);
-        }
         const normalized = {
           prompt_tokens: toNumber(nextUsage.prompt_tokens),
           completion_tokens: toNumber(nextUsage.completion_tokens),
-          total_cost: toNumber(nextUsage.total_cost),
+          cost: toNumber(nextUsage.cost),
         };
+        const hasCost =
+          "cost" in nextUsage &&
+          nextUsage.cost !== undefined &&
+          nextUsage.cost !== null;
         usage = {
           prompt_tokens: normalized.prompt_tokens ?? usage.prompt_tokens,
           completion_tokens:
             normalized.completion_tokens ?? usage.completion_tokens,
-          total_cost: normalized.total_cost ?? usage.total_cost,
+          cost: hasCost ? normalized.cost : usage.cost,
         };
+        if (hasCost) {
+          costFromStream = true;
+        }
+      },
+      onRequestId: (id: string) => {
+        requestId = id;
+        if (import.meta.env.DEV) {
+          console.debug(`[Session] Received request ID for ${modelId}:`, id);
+        }
       },
       onError: async (error) => {
         if (import.meta.env.DEV) {
@@ -1183,6 +1261,97 @@ async function requestCompletionForModel(
         const hasThinking = Boolean(assistantMessage.contentThinking?.trim());
         const hasImages = assistantMessage.imageIds.length > 0;
         const hasAttachments = pendingAttachments.length > 0;
+
+        // If cost is still missing and we have a request ID, query the generation endpoint
+        if (
+          !usage.cost &&
+          requestId &&
+          settings.apiKey &&
+          (usage.prompt_tokens || usage.completion_tokens)
+        ) {
+          if (import.meta.env.DEV) {
+            console.debug(
+              `[Session] Querying generation endpoint for ${modelId} (request ID: ${requestId})`,
+            );
+          }
+          try {
+            const generationUsage = await fetchGenerationCost(
+              settings.apiKey,
+              requestId,
+            );
+            if (generationUsage?.cost !== undefined) {
+              usage.cost = generationUsage.cost;
+              if (import.meta.env.DEV) {
+                console.debug(
+                  `[Session] ✓ Retrieved cost ($${generationUsage.cost}) from generation endpoint for ${modelId}`,
+                );
+              }
+            }
+          } catch (error) {
+            if (import.meta.env.DEV) {
+              console.warn(
+                `[Session] Failed to query generation endpoint for ${modelId}:`,
+                error,
+              );
+            }
+          }
+        }
+
+        // Verify cost estimation against OpenRouter's post-stream usage report
+        // Only verify if cost came from stream (not fetched from generation endpoint)
+        if (
+          requestId &&
+          settings.apiKey &&
+          costFromStream &&
+          usage.cost !== undefined &&
+          usage.cost !== null &&
+          (usage.prompt_tokens || usage.completion_tokens)
+        ) {
+          try {
+            const generationUsage = await fetchGenerationCost(
+              settings.apiKey,
+              requestId,
+              true, // Enable retry on 404
+            );
+            if (generationUsage?.cost !== undefined) {
+              const streamCost = usage.cost;
+              const verifiedCost = generationUsage.cost;
+              const costDifference = Math.abs(streamCost - verifiedCost);
+              const tolerance = 0.000001; // Allow tiny floating point differences
+
+              if (costDifference > tolerance) {
+                // Costs don't match - show error
+                const models = $models.get();
+                const modelInfo = models.find((m) => m.id === modelId);
+                const modelName = modelInfo?.name ?? modelId;
+                showVerificationDialog({
+                  type: "error",
+                  title: "Cost Verification Failed",
+                  message: `Cost estimation mismatch for ${modelName}:\n\nStream cost: $${streamCost.toFixed(6)}\nVerified cost: $${verifiedCost.toFixed(6)}\nDifference: $${costDifference.toFixed(6)}\n\nPlease verify against OpenRouter dashboard.`,
+                  modelId,
+                });
+              } else {
+                // Costs match - show success
+                const models = $models.get();
+                const modelInfo = models.find((m) => m.id === modelId);
+                const modelName = modelInfo?.name ?? modelId;
+                showVerificationDialog({
+                  type: "success",
+                  title: "Cost Verification Successful",
+                  message: `Cost estimation for ${modelName} verified against OpenRouter's post-stream usage report.\n\nCost: $${verifiedCost.toFixed(6)}`,
+                  modelId,
+                });
+              }
+            }
+          } catch (error) {
+            if (import.meta.env.DEV) {
+              console.warn(
+                `[Session] Failed to verify cost from generation endpoint for ${modelId}:`,
+                error,
+              );
+            }
+          }
+        }
 
         // Update sawOutput to include images resolved at stream end
         // CRITICAL: Reasoning/thinking counts as output even if no images/text
@@ -1319,45 +1488,9 @@ export async function removeMessageFromModel(
   const session = $activeSession.get().session;
   if (!session) return;
 
-  // Get the message to check if it's a user message (shared across runs)
-  const messages = await getMessages(session.id, modelId);
-  const messageToDelete = messages.find((msg) => msg.id === messageId);
-
-  if (messageToDelete && messageToDelete.runIndex === undefined) {
-    // User message without runIndex - check if it's used by other runs
-    const hasOtherRuns = messages.some(
-      (msg) =>
-        msg.id !== messageId &&
-        msg.runIndex !== undefined &&
-        messages.findIndex((m) => m.id === messageId) <
-          messages.findIndex((m) => m.id === msg.id),
-    );
-    if (hasOtherRuns && runIndex !== undefined) {
-      // User message is used by other runs - only delete assistant messages for this run
-      // Find the first assistant message for this run after the user message
-      const userMessageIndex = messages.findIndex((m) => m.id === messageId);
-      const firstAssistantForRun = messages.findIndex(
-        (msg, idx) =>
-          idx > userMessageIndex &&
-          msg.runIndex === runIndex &&
-          msg.role === "assistant",
-      );
-      if (firstAssistantForRun !== -1) {
-        await deleteMessagesAfter(
-          session.id,
-          modelId,
-          messages[firstAssistantForRun].id,
-          runIndex,
-        );
-      }
-    } else {
-      // No other runs using this user message, or runIndex not specified - delete normally
-      await deleteMessagesAfter(session.id, modelId, messageId, runIndex);
-    }
-  } else {
-    // Assistant message or runIndex specified - delete messages for this run
-    await deleteMessagesAfter(session.id, modelId, messageId, runIndex);
-  }
+  // Each run has its own copies of messages, so delete messages for the specified run
+  // If runIndex is not specified, delete for all runs (legacy support)
+  await deleteMessagesAfter(session.id, modelId, messageId, runIndex);
 
   const remaining = await getMessages(session.id, modelId);
   const state = $activeSession.get();
@@ -1505,4 +1638,6 @@ export async function syncSessionModels(modelIds: string[]) {
     await saveSession(updatedSession);
   }
   upsertHistorySession(updatedSession);
+
+  // System messages will be created when runs start, not during sync
 }

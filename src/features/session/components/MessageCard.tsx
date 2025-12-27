@@ -6,10 +6,9 @@ import { formatDuration, formatTimestamp } from "../../../lib/utils";
 import {
   $uiState,
   toggleCollapsedBlock,
-  toggleCollapsedMessage,
   toggleHiddenMessage,
 } from "../../../stores/uiStore";
-import { Trash2, ChevronDown, ChevronUp, Eye, EyeOff } from "lucide-react";
+import { Trash2, Eye, EyeOff, ChevronDown, ChevronUp } from "lucide-react";
 
 export default function MessageCard({
   message,
@@ -23,9 +22,6 @@ export default function MessageCard({
   onOpenImage: (imageId: string) => void;
 }) {
   const uiState = useStore($uiState);
-  const isCollapsible = message.role === "system" || message.role === "tool";
-  const isCollapsed =
-    isCollapsible && uiState.collapsedMessageIds.has(message.id);
   const isHidden = uiState.hiddenMessageIds.has(message.id);
   const reasoningId = `${message.id}:reasoning`;
   const thinkingId = `${message.id}:thinking`;
@@ -70,7 +66,7 @@ export default function MessageCard({
           <span>{formatTimestamp(message.createdAt)}</span>
         </div>
       </div>
-      {!isCollapsed && !isHidden && (
+      {!isHidden && (
         <>
           {/* Show error for assistant messages only */}
           {message.error && message.role === "assistant" && (
@@ -86,20 +82,23 @@ export default function MessageCard({
               {hasReasoning && (
                 <div className={styles.reasoningBlock}>
                   <div className={styles.reasoningLabel}>
-                    <span className="font-medium">Reasoning</span>
                     <Button
                       variant="ghost"
                       size="sm"
                       type="button"
                       onClick={() => toggleCollapsedBlock(reasoningId)}
+                      className="h-6 w-6 p-0"
+                      title={
+                        reasoningCollapsed ? "Show reasoning" : "Hide reasoning"
+                      }
                     >
                       {reasoningCollapsed ? (
-                        <ChevronDown size={16} />
+                        <EyeOff size={14} />
                       ) : (
-                        <ChevronUp size={16} />
+                        <Eye size={14} />
                       )}
-                      {reasoningCollapsed ? "Show" : "Hide"}
                     </Button>
+                    <span className="font-medium">Reasoning</span>
                   </div>
                   {!reasoningCollapsed && (
                     <div className="whitespace-pre-wrap break-words opacity-50 text-sm">
@@ -183,17 +182,6 @@ export default function MessageCard({
         </>
       )}
       <div className={styles.messageActions}>
-        {isCollapsible && (
-          <Button
-            variant="ghost"
-            size="sm"
-            type="button"
-            onClick={() => toggleCollapsedMessage(message.id)}
-          >
-            {isCollapsed ? <ChevronDown size={16} /> : <ChevronUp size={16} />}
-            {isCollapsed ? "Expand" : "Collapse"}
-          </Button>
-        )}
         <Button variant="ghost" size="sm" type="button" onClick={onRemove}>
           <Trash2 size={16} />
           Remove

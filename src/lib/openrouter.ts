@@ -8,7 +8,7 @@ const API_BASE = "https://openrouter.ai/api/v1";
 type OpenRouterUsage = {
   prompt_tokens?: number;
   completion_tokens?: number;
-  total_cost?: number;
+  cost?: number;
 };
 
 export type OpenRouterAttachment = {
@@ -65,6 +65,76 @@ export async function fetchOpenRouterModels(
   return (await response.json()) as OpenRouterModelsResponse;
 }
 
+export async function fetchGenerationCost(
+  apiKey: string,
+  generationId: string,
+  retryOn404 = true,
+): Promise<{
+  cost?: number;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+} | null> {
+  try {
+    // Generation endpoint may not be immediately available after stream completes
+    // Wait a second first, then retry on 404s
+    if (retryOn404) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+
+    const maxRetries = retryOn404 ? 3 : 0;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      if (attempt > 0) {
+        // Exponential backoff: 1s, 2s, 4s
+        const delay = 1000 * Math.pow(2, attempt - 1);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+
+      const response = await fetch(
+        `${API_BASE}/generation?id=${generationId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+          },
+        },
+      );
+
+      if (response.ok) {
+        const data = (await response.json()) as {
+          data?: Array<{
+            usage?: {
+              prompt_tokens?: number;
+              completion_tokens?: number;
+              cost?: number;
+            };
+          }>;
+        };
+        const generation = data.data?.[0];
+        return generation?.usage ?? null;
+      }
+
+      // If 404 and we have retries left, continue
+      if (response.status === 404 && attempt < maxRetries) {
+        if (import.meta.env.DEV) {
+          console.debug(
+            `[OpenRouter] Generation endpoint 404 (attempt ${attempt + 1}/${maxRetries + 1}), retrying...`,
+          );
+        }
+        continue;
+      }
+
+      return null;
+    }
+
+    return null;
+  } catch (error) {
+    if (import.meta.env.DEV) {
+      console.warn(`[OpenRouter] Failed to fetch generation cost:`, error);
+    }
+    return null;
+  }
+}
+
 export async function streamCompletion({
   apiKey,
   payload,
@@ -76,6 +146,7 @@ export async function streamCompletion({
   onUsage,
   onMessage,
   signal,
+  onRequestId,
 }: {
   apiKey: string;
   payload: OpenRouterCompletionRequest;
@@ -87,7 +158,7 @@ export async function streamCompletion({
   onUsage?: (usage: {
     prompt_tokens?: number;
     completion_tokens?: number;
-    total_cost?: number;
+    cost?: number;
   }) => void;
   onMessage?: (message: {
     text: string;
@@ -98,6 +169,7 @@ export async function streamCompletion({
       attachments: OpenRouterAttachmentDebug;
     };
   }) => void;
+  onRequestId?: (id: string) => void;
   signal?: AbortSignal;
 }): Promise<void> {
   const response = await fetchWithRetry(`${API_BASE}/chat/completions`, {
@@ -260,6 +332,7 @@ export async function streamCompletion({
       chunkId++;
       try {
         const parsed = JSON.parse(data) as {
+          id?: string; // Request ID for querying generation endpoint
           choices?: Array<{
             delta?: {
               content?: unknown;
@@ -502,6 +575,11 @@ export async function streamCompletion({
             }
           }
           onThinkingToken?.(r.thinking);
+        }
+
+        // Capture request ID if provided (for querying generation endpoint later)
+        if (parsed.id && onRequestId) {
+          onRequestId(parsed.id);
         }
 
         // Process usage AFTER images to ensure images are emitted first

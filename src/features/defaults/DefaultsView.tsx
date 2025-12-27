@@ -15,6 +15,10 @@ import {
   deleteDefault,
 } from "../../stores/defaultsStore";
 import type { DefaultEntry } from "../../types/db";
+import type {
+  GeminiImageSize,
+  ImageAspectRatio,
+} from "../../types/imageGeneration";
 import { Trash2, Plus, Save, X } from "lucide-react";
 import {
   setHeaderRightActions,
@@ -75,6 +79,18 @@ function DefaultEntryForm({
   const [outputFormatSet, setOutputFormatSet] = useState(
     entry?.outputFormatSet ?? false,
   );
+  const [imageAspectRatio, setImageAspectRatio] = useState<ImageAspectRatio>(
+    entry?.imageAspectRatio ?? "1:1",
+  );
+  const [imageAspectRatioSet, setImageAspectRatioSet] = useState(
+    entry?.imageAspectRatioSet ?? false,
+  );
+  const [imageSize, setImageSize] = useState<GeminiImageSize>(
+    entry?.imageSize ?? "1K",
+  );
+  const [imageSizeSet, setImageSizeSet] = useState(
+    entry?.imageSizeSet ?? false,
+  );
   const [filterError, setFilterError] = useState<string | null>(null);
 
   const matchingModels = useMemo(() => {
@@ -127,6 +143,10 @@ function DefaultEntryForm({
       keepOnlyLastImageSet,
       outputFormat: outputFormatSet ? outputFormat : undefined,
       outputFormatSet,
+      imageAspectRatio: imageAspectRatioSet ? imageAspectRatio : undefined,
+      imageAspectRatioSet,
+      imageSize: imageSizeSet ? imageSize : undefined,
+      imageSizeSet,
     });
   };
 
@@ -372,6 +392,73 @@ function DefaultEntryForm({
           compress.
         </p>
       </div>
+      <div
+        className={`${styles.formRow} ${styles.formFieldGroup} ${
+          !imageAspectRatioSet ? styles.disabled : ""
+        }`}
+      >
+        <label className="flex items-center gap-2">
+          <Checkbox
+            checked={imageAspectRatioSet}
+            onCheckedChange={(value) => setImageAspectRatioSet(Boolean(value))}
+          />
+          <span className="text-xs text-[var(--muted)]">
+            Image aspect ratio (Gemini)
+          </span>
+        </label>
+        {imageAspectRatioSet && (
+          <SelectPopover
+            value={imageAspectRatio}
+            onValueChange={(value) =>
+              setImageAspectRatio(value as ImageAspectRatio)
+            }
+            items={[
+              { value: "1:1", label: "1:1 (1024×1024)" },
+              { value: "2:3", label: "2:3 (832×1248)" },
+              { value: "3:2", label: "3:2 (1248×832)" },
+              { value: "3:4", label: "3:4 (864×1184)" },
+              { value: "4:3", label: "4:3 (1184×864)" },
+              { value: "4:5", label: "4:5 (896×1152)" },
+              { value: "5:4", label: "5:4 (1152×896)" },
+              { value: "9:16", label: "9:16 (768×1344)" },
+              { value: "16:9", label: "16:9 (1344×768)" },
+              { value: "21:9", label: "21:9 (1536×672)" },
+            ]}
+          />
+        )}
+        <p className="text-xs text-[var(--muted)] ml-6">
+          Sent as `image_config.aspect_ratio` for Gemini image generation.
+        </p>
+      </div>
+      <div
+        className={`${styles.formRow} ${styles.formFieldGroup} ${
+          !imageSizeSet ? styles.disabled : ""
+        }`}
+      >
+        <label className="flex items-center gap-2">
+          <Checkbox
+            checked={imageSizeSet}
+            onCheckedChange={(value) => setImageSizeSet(Boolean(value))}
+          />
+          <span className="text-xs text-[var(--muted)]">
+            Image size (Gemini)
+          </span>
+        </label>
+        {imageSizeSet && (
+          <SelectPopover
+            value={imageSize}
+            onValueChange={(value) => setImageSize(value as GeminiImageSize)}
+            items={[
+              { value: "1K", label: "1K (default)" },
+              { value: "2K", label: "2K" },
+              { value: "4K", label: "4K" },
+            ]}
+          />
+        )}
+        <p className="text-xs text-[var(--muted)] ml-6">
+          Sent as `image_config.image_size` (Gemini only).
+        </p>
+      </div>
       <div className={styles.formActions}>
         <Button type="button" onClick={handleSave} disabled={!!filterError}>
           <Save size={16} />
@@ -580,6 +667,20 @@ export default function DefaultsView() {
                   <div className={styles.formRow}>
                     <span className="text-xs text-[var(--muted)]">
                       Image Output Format: {entry.outputFormat?.toUpperCase()}
+                    </span>
+                  </div>
+                )}
+                {entry.imageAspectRatioSet && (
+                  <div className={styles.formRow}>
+                    <span className="text-xs text-[var(--muted)]">
+                      Image Aspect Ratio (Gemini): {entry.imageAspectRatio}
+                    </span>
+                  </div>
+                )}
+                {entry.imageSizeSet && (
+                  <div className={styles.formRow}>
+                    <span className="text-xs text-[var(--muted)]">
+                      Image Size (Gemini): {entry.imageSize}
                     </span>
                   </div>
                 )}

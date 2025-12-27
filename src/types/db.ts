@@ -1,3 +1,5 @@
+import type { GeminiImageSize, ImageAspectRatio } from "./imageGeneration";
+
 export type ViewKey = "session" | "models" | "stats" | "defaults" | "history";
 
 export type MessageRole = "system" | "user" | "assistant" | "tool";
@@ -89,6 +91,10 @@ export interface DefaultEntry {
   keepOnlyLastImageSet: boolean; // Whether keepOnlyLastImage is set
   outputFormat?: "png" | "jpeg" | "webp"; // Image output format (only sent if set)
   outputFormatSet: boolean; // Whether output format is set
+  imageAspectRatio?: ImageAspectRatio; // Gemini image aspect ratio hint (only sent if set)
+  imageAspectRatioSet: boolean; // Whether imageAspectRatio is set
+  imageSize?: GeminiImageSize; // Gemini image size hint (only sent if set)
+  imageSizeSet: boolean; // Whether imageSize is set
   createdAt: number;
   updatedAt: number;
 }

@@ -45,22 +45,27 @@ export default function ModelColumn({
 
   const runs = useMemo(() => {
     const runMap = new Map<number, Message[]>();
-    // User messages don't have runIndex - they're shared across all runs
-    const userMessages: Message[] = [];
 
+    // Group messages by runIndex - each run has its own copies
     messages.forEach((msg) => {
       if (msg.runIndex === undefined) {
-        // User/system messages without runIndex are shared across all runs
-        userMessages.push(msg);
-      } else {
-        if (!runMap.has(msg.runIndex)) runMap.set(msg.runIndex, []);
-        runMap.get(msg.runIndex)!.push(msg);
+        // Legacy messages without runIndex - skip or handle separately
+        // In the new model, all messages should have runIndex
+        return;
       }
+      if (!runMap.has(msg.runIndex)) runMap.set(msg.runIndex, []);
+      runMap.get(msg.runIndex)!.push(msg);
     });
 
-    // Add user messages to all runs
+    // Sort messages within each run: system messages first, then by createdAt
     runMap.forEach((runMessages) => {
-      runMessages.unshift(...userMessages);
+      runMessages.sort((a, b) => {
+        // System messages first
+        if (a.role === "system" && b.role !== "system") return -1;
+        if (a.role !== "system" && b.role === "system") return 1;
+        // Then sort by createdAt
+        return a.createdAt - b.createdAt;
+      });
     });
 
     return Array.from(runMap.entries()).sort(([a], [b]) => a - b);
@@ -76,11 +81,28 @@ export default function ModelColumn({
   }, [runs]);
 
   const displayMessages = useMemo(() => {
-    if (runs.length <= 1) return messages;
+    if (runs.length === 0) {
+      // No runs yet - show messages without runIndex (legacy) or empty
+      const legacyMessages = messages.filter(
+        (msg) => msg.runIndex === undefined,
+      );
+      return legacyMessages.sort((a, b) => {
+        // System messages first
+        if (a.role === "system" && b.role !== "system") return -1;
+        if (a.role !== "system" && b.role === "system") return 1;
+        // Then sort by createdAt
+        return a.createdAt - b.createdAt;
+      });
+    }
+    if (runs.length === 1) {
+      // Single run - show its messages
+      return runs[0][1];
+    }
+    // Multiple runs - show selected run
     const runIndexToUse = activeRunIndex ?? defaultRunIndex;
-    if (runIndexToUse === undefined) return messages;
+    if (runIndexToUse === undefined) return [];
     const run = runs.find(([runIdx]) => runIdx === runIndexToUse);
-    return run ? run[1] : messages;
+    return run ? run[1] : [];
   }, [runs, activeRunIndex, defaultRunIndex, messages]);
 
   useEffect(() => {

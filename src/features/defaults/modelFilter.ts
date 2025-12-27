@@ -4,7 +4,8 @@ export function tryCompileModelFilter(pattern: string): RegExp | null {
   const normalized = pattern.trim();
   if (!normalized) return null;
   try {
-    return new RegExp(normalized);
+    // Make regex case-insensitive for more flexible matching
+    return new RegExp(normalized, "i");
   } catch {
     return null;
   }

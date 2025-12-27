@@ -23,6 +23,10 @@ const defaultDefaultsState: DefaultsState = {
       keepOnlyLastImageSet: false,
       outputFormat: "png",
       outputFormatSet: true, // Set to true to enable PNG output format
+      imageAspectRatio: "1:1",
+      imageAspectRatioSet: true,
+      imageSize: "1K",
+      imageSizeSet: true,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     },
@@ -42,6 +46,10 @@ const defaultDefaultsState: DefaultsState = {
       keepOnlyLastImageSet: true,
       outputFormat: "png",
       outputFormatSet: false,
+      imageAspectRatio: "1:1",
+      imageAspectRatioSet: false,
+      imageSize: "1K",
+      imageSizeSet: false,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     },
@@ -95,6 +103,22 @@ export async function loadDefaults() {
         raw.outputFormatSet = raw.id === COMMON_DEFAULT_ID;
         needsSave = true;
       }
+      if (raw.imageAspectRatio === undefined) {
+        raw.imageAspectRatio = "1:1";
+        needsSave = true;
+      }
+      if (raw.imageAspectRatioSet === undefined) {
+        raw.imageAspectRatioSet = raw.id === COMMON_DEFAULT_ID;
+        needsSave = true;
+      }
+      if (raw.imageSize === undefined) {
+        raw.imageSize = "1K";
+        needsSave = true;
+      }
+      if (raw.imageSizeSet === undefined) {
+        raw.imageSizeSet = raw.id === COMMON_DEFAULT_ID;
+        needsSave = true;
+      }
     });
 
     // Ensure common default exists
@@ -118,6 +142,10 @@ export async function loadDefaults() {
         keepOnlyLastImageSet: false,
         outputFormat: "png",
         outputFormatSet: true,
+        imageAspectRatio: "1:1",
+        imageAspectRatioSet: true,
+        imageSize: "1K",
+        imageSizeSet: true,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       });
@@ -144,6 +172,10 @@ export async function loadDefaults() {
         keepOnlyLastImageSet: true,
         outputFormat: "png",
         outputFormatSet: false,
+        imageAspectRatio: "1:1",
+        imageAspectRatioSet: false,
+        imageSize: "1K",
+        imageSizeSet: false,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       });
@@ -188,7 +220,7 @@ export async function updateDefault(
     ...defaults,
     entries: defaults.entries.map((entry) => {
       if (entry.id !== id) return entry;
-      // Common default: allow updating systemMessage, streamReasoning, reasoningEffort, temperature, and outputFormat
+      // Common default: allow updating systemMessage, streamReasoning, reasoningEffort, temperature, and image settings
       if (isCommonDefault) {
         return {
           ...entry,
@@ -208,6 +240,11 @@ export async function updateDefault(
             updates.keepOnlyLastImageSet ?? entry.keepOnlyLastImageSet,
           outputFormat: updates.outputFormat ?? entry.outputFormat,
           outputFormatSet: updates.outputFormatSet ?? entry.outputFormatSet,
+          imageAspectRatio: updates.imageAspectRatio ?? entry.imageAspectRatio,
+          imageAspectRatioSet:
+            updates.imageAspectRatioSet ?? entry.imageAspectRatioSet,
+          imageSize: updates.imageSize ?? entry.imageSize,
+          imageSizeSet: updates.imageSizeSet ?? entry.imageSizeSet,
           updatedAt: Date.now(),
         };
       }
@@ -245,7 +282,8 @@ export function getMatchingDefault(modelId: string): DefaultEntry | null {
       return true;
     }
     try {
-      const regex = new RegExp(entry.modelFilter);
+      // Make regex case-insensitive for more flexible matching
+      const regex = new RegExp(entry.modelFilter, "i");
       return regex.test(modelId);
     } catch {
       // Invalid regex, skip

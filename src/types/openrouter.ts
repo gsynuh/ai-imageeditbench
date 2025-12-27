@@ -1,3 +1,5 @@
+import type { GeminiImageSize, ImageAspectRatio } from "./imageGeneration";
+
 export interface OpenRouterModel {
   id: string;
   name: string;
@@ -34,6 +36,9 @@ export interface OpenRouterCompletionRequest {
   messages: OpenRouterMessage[];
   stream?: boolean;
   include_usage?: boolean;
+  usage?: {
+    include?: boolean;
+  };
   stream_options?: {
     include_usage?: boolean;
   };
@@ -45,5 +50,9 @@ export interface OpenRouterCompletionRequest {
   presence_penalty?: number;
   modalities?: string[];
   transforms?: string[];
+  image_config?: {
+    aspect_ratio?: ImageAspectRatio;
+    image_size?: GeminiImageSize;
+  };
   [key: string]: unknown;
 }

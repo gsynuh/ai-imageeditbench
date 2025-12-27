@@ -19,6 +19,7 @@ import StatsView from "./features/stats/StatsView";
 import DefaultsView from "./features/defaults/DefaultsView";
 import HistoryView from "./features/history/HistoryView";
 import { $headerCenter, $headerRightActions } from "./stores/headerStore";
+import VerificationDialog from "./components/VerificationDialog";
 
 function App() {
   const activeView = useStore($activeView);
@@ -133,6 +134,7 @@ function App() {
           </ErrorBoundary>
         )}
       </section>
+      <VerificationDialog />
     </div>
   );
 }
