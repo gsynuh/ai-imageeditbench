@@ -8,7 +8,7 @@ import {
   DialogTitle,
 } from "../../../components/ui/dialog";
 import { Slider } from "../../../components/ui/slider";
-import styles from "../MainView.module.scss";
+import styles from "../SessionView.module.scss";
 import {
   clamp,
   computeCoverScale,

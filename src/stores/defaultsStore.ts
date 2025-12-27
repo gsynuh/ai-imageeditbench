@@ -21,6 +21,8 @@ const defaultDefaultsState: DefaultsState = {
       temperatureSet: false, // Not set by default
       keepOnlyLastImage: false,
       keepOnlyLastImageSet: false,
+      outputFormat: "png",
+      outputFormatSet: true, // Set to true to enable PNG output format
       createdAt: Date.now(),
       updatedAt: Date.now(),
     },
@@ -38,6 +40,8 @@ const defaultDefaultsState: DefaultsState = {
       temperatureSet: false,
       keepOnlyLastImage: true,
       keepOnlyLastImageSet: true,
+      outputFormat: "png",
+      outputFormatSet: false,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     },
@@ -82,6 +86,15 @@ export async function loadDefaults() {
         raw.keepOnlyLastImageSet = false;
         needsSave = true;
       }
+      if (raw.outputFormat === undefined) {
+        raw.outputFormat = "png";
+        needsSave = true;
+      }
+      if (raw.outputFormatSet === undefined) {
+        // For common default, set to true; for others, set to false
+        raw.outputFormatSet = raw.id === COMMON_DEFAULT_ID;
+        needsSave = true;
+      }
     });
 
     // Ensure common default exists
@@ -103,6 +116,8 @@ export async function loadDefaults() {
         temperatureSet: false,
         keepOnlyLastImage: false,
         keepOnlyLastImageSet: false,
+        outputFormat: "png",
+        outputFormatSet: true,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       });
@@ -127,6 +142,8 @@ export async function loadDefaults() {
         temperatureSet: false,
         keepOnlyLastImage: true,
         keepOnlyLastImageSet: true,
+        outputFormat: "png",
+        outputFormatSet: false,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       });
@@ -171,7 +188,7 @@ export async function updateDefault(
     ...defaults,
     entries: defaults.entries.map((entry) => {
       if (entry.id !== id) return entry;
-      // Common default: allow updating systemMessage, streamReasoning, reasoningEffort, and temperature
+      // Common default: allow updating systemMessage, streamReasoning, reasoningEffort, temperature, and outputFormat
       if (isCommonDefault) {
         return {
           ...entry,
@@ -189,6 +206,8 @@ export async function updateDefault(
             updates.keepOnlyLastImage ?? entry.keepOnlyLastImage,
           keepOnlyLastImageSet:
             updates.keepOnlyLastImageSet ?? entry.keepOnlyLastImageSet,
+          outputFormat: updates.outputFormat ?? entry.outputFormat,
+          outputFormatSet: updates.outputFormatSet ?? entry.outputFormatSet,
           updatedAt: Date.now(),
         };
       }

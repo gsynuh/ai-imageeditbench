@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "@nanostores/react";
-import type { ConversationStats, Message } from "../../../types/db";
-import styles from "../MainView.module.scss";
+import type { Message, SessionStats } from "../../../types/db";
+import styles from "../SessionView.module.scss";
 import { Button } from "../../../components/ui/button";
 import {
   abortStream,
   removeMessageFromModel,
   rerunLastAssistantMessage,
-} from "../../../stores/conversationsStore";
+} from "../../../stores/sessionsStore";
 import MessageCard from "./MessageCard";
 import { Ban, Circle, CircleDot, RotateCcw } from "lucide-react";
 import { getImage } from "../../../lib/idb";
@@ -25,7 +25,7 @@ export default function ModelColumn({
   modelId: string;
   modelName: string;
   messages: Message[];
-  stats?: ConversationStats;
+  stats?: SessionStats;
   isStreaming?: boolean;
 }) {
   const [imageUrls, setImageUrls] = useState<

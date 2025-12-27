@@ -1,6 +1,6 @@
 import type {
-  Conversation,
-  ConversationStats,
+  Session,
+  SessionStats,
   DefaultsState,
   ImageAsset,
   Message,
@@ -9,7 +9,7 @@ import type {
 import type { OpenRouterModel } from "../types/openrouter";
 
 const DB_NAME = "image-edit-bench";
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 
 function toFiniteNumber(value: unknown, fallback = 0): number {
   if (typeof value === "number") {
@@ -22,22 +22,22 @@ function toFiniteNumber(value: unknown, fallback = 0): number {
   return fallback;
 }
 
-function normalizeConversation(conversation: Conversation): Conversation {
+function normalizeSession(session: Session): Session {
   return {
-    ...conversation,
-    createdAt: toFiniteNumber(conversation.createdAt),
-    updatedAt: toFiniteNumber(conversation.updatedAt),
-    firstRunAt:
-      conversation.firstRunAt === undefined
+    ...session,
+    createdAt: toFiniteNumber(session.createdAt),
+    updatedAt: toFiniteNumber(session.updatedAt),
+    firstExecutedAt:
+      session.firstExecutedAt === undefined
         ? undefined
-        : toFiniteNumber(conversation.firstRunAt),
-    messageCount: toFiniteNumber(conversation.messageCount),
-    totalTokens: toFiniteNumber(conversation.totalTokens),
-    totalCost: toFiniteNumber(conversation.totalCost),
+        : toFiniteNumber(session.firstExecutedAt),
+    messageCount: toFiniteNumber(session.messageCount),
+    totalTokens: toFiniteNumber(session.totalTokens),
+    totalCost: toFiniteNumber(session.totalCost),
   };
 }
 
-function normalizeStats(stats: ConversationStats): ConversationStats {
+function normalizeStats(stats: SessionStats): SessionStats {
   return {
     ...stats,
     inputTokens: toFiniteNumber(stats.inputTokens),
@@ -49,7 +49,7 @@ function normalizeStats(stats: ConversationStats): ConversationStats {
 type StoreName =
   | "settings"
   | "models"
-  | "conversations"
+  | "sessions"
   | "messages"
   | "images"
   | "stats"
@@ -64,13 +64,21 @@ function openDb(): Promise<IDBDatabase> {
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
         const oldVersion = event.oldVersion;
-        const tx = (event.target as IDBOpenDBRequest).transaction;
-
-        // If upgrading from version 1 or earlier, create defaults store
-        if (oldVersion < 2) {
-          if (!db.objectStoreNames.contains("defaults")) {
-            db.createObjectStore("defaults", { keyPath: "id" });
-          }
+        // This app does not require schema migration/back-compat. If the schema changes,
+        // we drop and recreate session-related stores.
+        if (oldVersion < 6) {
+          const storesToDrop: string[] = [
+            "conversations", // legacy store name (pre-session terminology)
+            "sessions",
+            "messages",
+            "images",
+            "stats",
+          ];
+          storesToDrop.forEach((name) => {
+            if (db.objectStoreNames.contains(name)) {
+              db.deleteObjectStore(name);
+            }
+          });
         }
 
         // Ensure all stores exist
@@ -80,54 +88,21 @@ function openDb(): Promise<IDBDatabase> {
         if (!db.objectStoreNames.contains("models")) {
           db.createObjectStore("models", { keyPath: "id" });
         }
-        if (!db.objectStoreNames.contains("conversations")) {
-          const store = db.createObjectStore("conversations", {
+        if (!db.objectStoreNames.contains("sessions")) {
+          const store = db.createObjectStore("sessions", {
             keyPath: "id",
           });
           store.createIndex("updatedAt", "updatedAt");
-        } else if (tx) {
-          const store = tx.objectStore("conversations");
-          if (!Array.from(store.indexNames).includes("updatedAt")) {
-            store.createIndex("updatedAt", "updatedAt");
-          }
         }
         if (!db.objectStoreNames.contains("messages")) {
           const store = db.createObjectStore("messages", { keyPath: "id" });
-          store.createIndex("conversationId", "conversationId");
+          store.createIndex("sessionId", "sessionId");
           store.createIndex("modelId", "modelId");
-          store.createIndex("conversationModel", ["conversationId", "modelId"]);
+          store.createIndex("sessionModel", ["sessionId", "modelId"]);
           store.createIndex("createdAt", "createdAt");
-        } else if (tx) {
-          const store = tx.objectStore("messages");
-          const indexes = new Set(Array.from(store.indexNames));
-          if (!indexes.has("conversationId")) {
-            store.createIndex("conversationId", "conversationId");
-          }
-          if (!indexes.has("modelId")) {
-            store.createIndex("modelId", "modelId");
-          }
-          if (!indexes.has("conversationModel")) {
-            store.createIndex("conversationModel", [
-              "conversationId",
-              "modelId",
-            ]);
-          }
-          if (!indexes.has("createdAt")) {
-            store.createIndex("createdAt", "createdAt");
-          }
         }
         if (!db.objectStoreNames.contains("images")) {
           db.createObjectStore("images", { keyPath: "id" });
-        } else if (tx) {
-          const store = tx.objectStore("images");
-          if (oldVersion < 5) {
-            if (Array.from(store.indexNames).includes("dedupeKey")) {
-              store.deleteIndex("dedupeKey");
-            }
-            if (Array.from(store.indexNames).includes("blobHash")) {
-              store.deleteIndex("blobHash");
-            }
-          }
         }
         if (!db.objectStoreNames.contains("stats")) {
           db.createObjectStore("stats", { keyPath: "id" });
@@ -192,39 +167,31 @@ export async function getModels(): Promise<OpenRouterModel[]> {
   return withStore("models", "readonly", (store) => store.getAll());
 }
 
-export async function saveConversation(
-  conversation: Conversation,
-): Promise<void> {
-  await withStore("conversations", "readwrite", (store) =>
-    store.put(normalizeConversation(conversation)),
+export async function saveSession(session: Session): Promise<void> {
+  await withStore("sessions", "readwrite", (store) =>
+    store.put(normalizeSession(session)),
   );
 }
 
-export async function getConversation(
-  id: string,
-): Promise<Conversation | null> {
-  return withStore("conversations", "readonly", (store) => store.get(id)).then(
-    (conversation) =>
-      conversation ? normalizeConversation(conversation as Conversation) : null,
+export async function getSession(id: string): Promise<Session | null> {
+  return withStore("sessions", "readonly", (store) => store.get(id)).then(
+    (session) => (session ? normalizeSession(session as Session) : null),
   );
 }
 
-export async function listConversations(
-  offset = 0,
-  limit = 20,
-): Promise<Conversation[]> {
+export async function listSessions(offset = 0, limit = 20): Promise<Session[]> {
   const db = await openDb();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction("conversations", "readonly");
-    const store = tx.objectStore("conversations");
+    const tx = db.transaction("sessions", "readonly");
+    const store = tx.objectStore("sessions");
     const hasUpdatedAtIndex = Array.from(store.indexNames).includes(
       "updatedAt",
     );
     if (!hasUpdatedAtIndex) {
       const requestAll = store.getAll();
       requestAll.onsuccess = () => {
-        const all = (requestAll.result as Conversation[])
-          .map(normalizeConversation)
+        const all = (requestAll.result as Session[])
+          .map(normalizeSession)
           .slice();
         all.sort((a, b) => b.updatedAt - a.updatedAt);
         resolve(all.slice(offset, offset + limit));
@@ -235,7 +202,7 @@ export async function listConversations(
 
     const index = store.index("updatedAt");
     const request = index.openCursor(null, "prev");
-    const results: Conversation[] = [];
+    const results: Session[] = [];
     let skipped = 0;
     request.onsuccess = () => {
       const cursor = request.result;
@@ -249,7 +216,7 @@ export async function listConversations(
         return;
       }
       if (results.length < limit) {
-        results.push(normalizeConversation(cursor.value as Conversation));
+        results.push(normalizeSession(cursor.value as Session));
         cursor.continue();
         return;
       }
@@ -259,18 +226,18 @@ export async function listConversations(
   });
 }
 
-export async function deleteConversation(id: string): Promise<void> {
+export async function deleteSession(id: string): Promise<void> {
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(
-      ["conversations", "messages", "stats", "images"],
+      ["sessions", "messages", "stats", "images"],
       "readwrite",
     );
-    const conversationStore = tx.objectStore("conversations");
+    const sessionStore = tx.objectStore("sessions");
     const messageStore = tx.objectStore("messages");
     const statsStore = tx.objectStore("stats");
     const imageStore = tx.objectStore("images");
-    conversationStore.delete(id);
+    sessionStore.delete(id);
     const imageIdsToDelete = new Set<string>();
     const imageIdsInUse = new Set<string>();
     const request = messageStore.openCursor();
@@ -285,7 +252,7 @@ export async function deleteConversation(id: string): Promise<void> {
         return;
       }
       const message = cursor.value as Message;
-      if (message.conversationId === id) {
+      if (message.sessionId === id) {
         message.imageIds.forEach((imageId) => imageIdsToDelete.add(imageId));
         cursor.delete();
       } else {
@@ -297,7 +264,7 @@ export async function deleteConversation(id: string): Promise<void> {
     statsRequest.onsuccess = () => {
       const cursor = statsRequest.result;
       if (!cursor) return;
-      if ((cursor.value as ConversationStats).conversationId === id) {
+      if ((cursor.value as SessionStats).sessionId === id) {
         cursor.delete();
       }
       cursor.continue();
@@ -323,15 +290,15 @@ export async function saveMessages(messages: Message[]): Promise<void> {
 }
 
 export async function getMessages(
-  conversationId: string,
+  sessionId: string,
   modelId?: string,
 ): Promise<Message[]> {
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction("messages", "readonly");
     const store = tx.objectStore("messages");
-    const index = store.index(modelId ? "conversationModel" : "conversationId");
-    const key = modelId ? [conversationId, modelId] : conversationId;
+    const index = store.index(modelId ? "sessionModel" : "sessionId");
+    const key = modelId ? [sessionId, modelId] : sessionId;
     const request = index.getAll(key);
     request.onsuccess = () => {
       const messages = request.result as Message[];
@@ -383,12 +350,12 @@ export async function deleteMessage(messageId: string): Promise<void> {
 }
 
 export async function deleteMessagesAfter(
-  conversationId: string,
+  sessionId: string,
   modelId: string,
   messageId: string,
   runIndex?: number,
 ): Promise<void> {
-  const messages = await getMessages(conversationId, modelId);
+  const messages = await getMessages(sessionId, modelId);
   const index = messages.findIndex((message) => message.id === messageId);
   if (index === -1) return;
 
@@ -447,23 +414,30 @@ export async function getImage(id: string): Promise<ImageAsset | null> {
   return withStore("images", "readonly", (store) => store.get(id));
 }
 
-export async function saveStats(stats: ConversationStats): Promise<void> {
+export async function saveStats(stats: SessionStats): Promise<void> {
   const normalized = normalizeStats(stats);
   const payload = {
     ...normalized,
-    id: `${normalized.conversationId}:${normalized.modelId}`,
+    id: `${normalized.sessionId}:${normalized.modelId}`,
   };
   await withStore("stats", "readwrite", (store) => store.put(payload));
 }
 
-export async function getStats(
-  conversationId: string,
-): Promise<ConversationStats[]> {
+export async function getStats(sessionId: string): Promise<SessionStats[]> {
   return withStore("stats", "readonly", (store) => store.getAll()).then(
     (stats) =>
-      (stats as ConversationStats[])
-        .filter((item) => item.conversationId === conversationId)
-        .map((item) => normalizeStats(item as ConversationStats)),
+      (stats as SessionStats[])
+        .filter((item) => item.sessionId === sessionId)
+        .map((item) => normalizeStats(item as SessionStats)),
+  );
+}
+
+export async function getAllStats(): Promise<SessionStats[]> {
+  return withStore("stats", "readonly", (store) => store.getAll()).then(
+    (stats) =>
+      (stats as SessionStats[]).map((item) =>
+        normalizeStats(item as SessionStats),
+      ),
   );
 }
 
@@ -482,7 +456,7 @@ export async function clearAllStorage(): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(
       [
-        "conversations",
+        "sessions",
         "messages",
         "images",
         "stats",
@@ -493,7 +467,7 @@ export async function clearAllStorage(): Promise<void> {
       "readwrite",
     );
     const stores: StoreName[] = [
-      "conversations",
+      "sessions",
       "messages",
       "images",
       "stats",

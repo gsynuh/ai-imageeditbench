@@ -1,24 +1,19 @@
 import { atom, map } from "nanostores";
-import type {
-  Conversation,
-  ConversationStats,
-  Message,
-  MessageRole,
-} from "../types/db";
+import type { Session, SessionStats, Message, MessageRole } from "../types/db";
 import type {
   OpenRouterCompletionRequest,
   OpenRouterMessage,
 } from "../types/openrouter";
 import {
-  deleteConversation as deleteConversationDb,
+  deleteSession as deleteSessionDb,
   deleteMessage,
   deleteMessagesAfter,
-  getConversation,
+  getSession,
   getImage,
   getMessages,
   getStats,
-  listConversations,
-  saveConversation,
+  listSessions,
+  saveSession,
   saveImage,
   saveMessage,
   saveStats,
@@ -32,14 +27,14 @@ import {
   centerCropSquare,
   loadImageFromFile,
 } from "../lib/image";
-import { exportConversationZip } from "../lib/export";
+import { exportSessionZip } from "../lib/export";
 import {
   collectImageUrlsFromAttachments,
   resolveAndStoreMessageImages,
-} from "../lib/conversation/messageImages";
+} from "../lib/session/messageImages";
 import { calculateModelCostUsd } from "../lib/cost";
 import { $settings, setSelectedModels } from "./settingsStore";
-import { $activeConversationId, setActiveConversation } from "./appStore";
+import { $activeSessionId, setActiveSession } from "./appStore";
 import { $models } from "./modelsStore";
 import { inferModelModalities } from "../lib/modelMeta";
 import { getMatchingDefault } from "./defaultsStore";
@@ -52,86 +47,83 @@ import {
 import type { InputState } from "./inputStore";
 import type { ImageAsset } from "../types/db";
 
-export interface ActiveConversationState {
-  conversation: Conversation | null;
+export interface ActiveSessionState {
+  session: Session | null;
   messagesByModel: Record<string, Message[]>;
-  statsByModel: Record<string, ConversationStats>;
+  statsByModel: Record<string, SessionStats>;
   streamingByModel: Record<string, boolean>;
   errorsByModel: Record<string, string | null>;
 }
 
-export const $activeConversation = map<ActiveConversationState>({
-  conversation: null,
+export const $activeSession = map<ActiveSessionState>({
+  session: null,
   messagesByModel: {},
   statsByModel: {},
   streamingByModel: {},
   errorsByModel: {},
 });
 
-export const $history = atom<Conversation[]>([]);
+export const $history = atom<Session[]>([]);
 
 // Map key format: `${modelId}-${runIndex}` for per-run abort controllers
 const streamControllers = new Map<string, AbortController>();
-const deletedConversationIds = new Set<string>();
+const deletedSessionIds = new Set<string>();
 
-function upsertHistoryConversation(conversation: Conversation) {
-  if (!conversation.hasRun) return;
+function upsertHistorySession(session: Session) {
+  if (!session.hasExecuted) return;
   const list = $history.get();
   if (list.length === 0) {
-    $history.set([conversation]);
+    $history.set([session]);
     return;
   }
-  const next = [
-    conversation,
-    ...list.filter((item) => item.id !== conversation.id),
-  ]
+  const next = [session, ...list.filter((item) => item.id !== session.id)]
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .slice(0, list.length);
   $history.set(next);
 }
 
-function createEmptyConversation(modelIds: string[]): Conversation {
+function createEmptySession(modelIds: string[]): Session {
   const now = Date.now();
   return {
-    id: createId("conversation"),
+    id: createId("session"),
     createdAt: now,
     updatedAt: now,
     modelIds,
-    hasRun: false,
+    hasExecuted: false,
     messageCount: 0,
     totalTokens: 0,
     totalCost: 0,
   };
 }
 
-const persistConversationDebounced = debounce((conversation: Conversation) => {
-  if (deletedConversationIds.has(conversation.id)) return;
-  if (!conversation.hasRun) return;
-  void saveConversation(conversation);
-  upsertHistoryConversation(conversation);
+const persistSessionDebounced = debounce((session: Session) => {
+  if (deletedSessionIds.has(session.id)) return;
+  if (!session.hasExecuted) return;
+  void saveSession(session);
+  upsertHistorySession(session);
 }, 500);
 
-async function ensureStatsForModel(conversationId: string, modelId: string) {
-  const current = $activeConversation.get();
+async function ensureStatsForModel(sessionId: string, modelId: string) {
+  const current = $activeSession.get();
   if (current.statsByModel[modelId]) return;
-  const stats: ConversationStats = {
-    conversationId,
+  const stats: SessionStats = {
+    sessionId,
     modelId,
     inputTokens: 0,
     outputTokens: 0,
     totalCost: 0,
   };
-  $activeConversation.set({
+  $activeSession.set({
     ...current,
     statsByModel: { ...current.statsByModel, [modelId]: stats },
   });
 }
 
 async function buildOpenRouterMessages(
-  conversationId: string,
+  sessionId: string,
   modelId: string,
 ): Promise<OpenRouterMessage[]> {
-  const messages = await getMessages(conversationId, modelId);
+  const messages = await getMessages(sessionId, modelId);
   const output: OpenRouterMessage[] = [];
 
   // Check for matching default and prepend system message if present and set
@@ -196,9 +188,9 @@ async function getImageAsset(id: string): Promise<ImageAsset | null> {
   return await getImage(id);
 }
 
-function updateConversationTotals(
-  conversation: Conversation,
-  statsByModel: Record<string, ConversationStats>,
+function updateSessionTotals(
+  session: Session,
+  statsByModel: Record<string, SessionStats>,
 ) {
   const totals = Object.values(statsByModel).reduce(
     (acc, stat) => {
@@ -209,22 +201,22 @@ function updateConversationTotals(
     },
     { tokens: 0, cost: 0 },
   );
-  conversation.totalTokens = totals.tokens;
-  conversation.totalCost = totals.cost;
-  conversation.messageCount = Object.values(
-    $activeConversation.get().messagesByModel,
+  session.totalTokens = totals.tokens;
+  session.totalCost = totals.cost;
+  session.messageCount = Object.values(
+    $activeSession.get().messagesByModel,
   ).reduce((count, list) => count + list.length, 0);
-  conversation.updatedAt = Date.now();
+  session.updatedAt = Date.now();
 }
 
-export async function initializeConversation() {
+export async function initializeSession() {
   const settings = $settings.get();
   const modelIds = settings.selectedModelIds;
-  const newConversation = createEmptyConversation(modelIds);
-  const statsByModel = modelIds.reduce<Record<string, ConversationStats>>(
+  const newSession = createEmptySession(modelIds);
+  const statsByModel = modelIds.reduce<Record<string, SessionStats>>(
     (acc, modelId) => {
       acc[modelId] = {
-        conversationId: newConversation.id,
+        sessionId: newSession.id,
         modelId,
         inputTokens: 0,
         outputTokens: 0,
@@ -234,9 +226,9 @@ export async function initializeConversation() {
     },
     {},
   );
-  setActiveConversation(newConversation.id);
-  $activeConversation.set({
-    conversation: newConversation,
+  setActiveSession(newSession.id);
+  $activeSession.set({
+    session: newSession,
     messagesByModel: {},
     statsByModel,
     streamingByModel: {},
@@ -244,18 +236,18 @@ export async function initializeConversation() {
   });
 }
 
-export async function loadConversation(
+export async function loadSession(
   id: string,
   options?: { applyModelsToSettings?: boolean },
 ) {
   const applyModelsToSettings = options?.applyModelsToSettings ?? true;
-  const conversation = await getConversation(id);
-  if (!conversation) return;
+  const session = await getSession(id);
+  if (!session) return;
   const messagesByModel: Record<string, Message[]> = {};
   const streamingByModel: Record<string, boolean> = {};
 
-  for (const modelId of conversation.modelIds) {
-    const messages = await getMessages(conversation.id, modelId);
+  for (const modelId of session.modelIds) {
+    const messages = await getMessages(session.id, modelId);
     messagesByModel[modelId] = messages;
 
     // Check if any messages are currently streaming for this model
@@ -272,19 +264,19 @@ export async function loadConversation(
       }
     });
   }
-  const stats = await getStats(conversation.id);
-  const statsByModel = stats.reduce<Record<string, ConversationStats>>(
+  const stats = await getStats(session.id);
+  const statsByModel = stats.reduce<Record<string, SessionStats>>(
     (acc, stat) => {
       acc[stat.modelId] = stat;
       return acc;
     },
     {},
   );
-  const missingStats: ConversationStats[] = [];
-  conversation.modelIds.forEach((modelId) => {
+  const missingStats: SessionStats[] = [];
+  session.modelIds.forEach((modelId) => {
     if (statsByModel[modelId]) return;
-    const stat: ConversationStats = {
-      conversationId: conversation.id,
+    const stat: SessionStats = {
+      sessionId: session.id,
       modelId,
       inputTokens: 0,
       outputTokens: 0,
@@ -296,29 +288,29 @@ export async function loadConversation(
   if (missingStats.length) {
     await Promise.all(missingStats.map((stat) => saveStats(stat)));
   }
-  setActiveConversation(conversation.id);
-  $activeConversation.set({
-    conversation,
+  setActiveSession(session.id);
+  $activeSession.set({
+    session,
     messagesByModel,
     statsByModel,
     streamingByModel,
     errorsByModel: {},
   });
-  upsertHistoryConversation(conversation);
+  upsertHistorySession(session);
   if (applyModelsToSettings) {
-    await setSelectedModels(conversation.modelIds);
+    await setSelectedModels(session.modelIds);
   }
 }
 
-export async function resetConversation() {
-  await initializeConversation();
+export async function resetSession() {
+  await initializeSession();
 }
 
 export async function loadHistory() {
-  const results = await listConversations(0, 20);
+  const results = await listSessions(0, 20);
   const empty = results.filter(
     (item) =>
-      !item.hasRun &&
+      !item.hasExecuted &&
       item.messageCount === 0 &&
       item.totalTokens === 0 &&
       item.totalCost === 0,
@@ -327,7 +319,7 @@ export async function loadHistory() {
     await Promise.all(
       empty.map(async (item) => {
         try {
-          await deleteConversationDb(item.id);
+          await deleteSessionDb(item.id);
         } catch {
           // ignore
         }
@@ -335,7 +327,8 @@ export async function loadHistory() {
     );
   }
   const filtered = results.filter(
-    (item) => item.hasRun || (item.messageCount > 0 && item.totalTokens > 0),
+    (item) =>
+      item.hasExecuted || (item.messageCount > 0 && item.totalTokens > 0),
   );
   $history.set(filtered);
   setHistoryHasMore(results.length === 20);
@@ -343,30 +336,31 @@ export async function loadHistory() {
 }
 
 export async function loadMoreHistory(offset: number) {
-  const results = await listConversations(offset, 20);
+  const results = await listSessions(offset, 20);
   const filtered = results.filter(
-    (item) => item.hasRun || (item.messageCount > 0 && item.totalTokens > 0),
+    (item) =>
+      item.hasExecuted || (item.messageCount > 0 && item.totalTokens > 0),
   );
   $history.set([...$history.get(), ...filtered]);
   setHistoryHasMore(results.length === 20);
 }
 
-export async function deleteConversation(id: string) {
-  deletedConversationIds.add(id);
-  await deleteConversationDb(id);
+export async function deleteSession(id: string) {
+  deletedSessionIds.add(id);
+  await deleteSessionDb(id);
   $history.set($history.get().filter((item) => item.id !== id));
-  if ($activeConversationId.get() === id) {
-    await initializeConversation();
+  if ($activeSessionId.get() === id) {
+    await initializeSession();
   }
   await loadHistory();
 }
 
-export async function exportConversation(id: string) {
-  const conversation = await getConversation(id);
-  if (!conversation) return;
+export async function exportSession(id: string) {
+  const session = await getSession(id);
+  if (!session) return;
   const messagesByModel: Record<string, Message[]> = {};
   const images: Record<string, ImageAsset> = {};
-  for (const modelId of conversation.modelIds) {
+  for (const modelId of session.modelIds) {
     const messages = await getMessages(id, modelId);
     messagesByModel[modelId] = messages;
     for (const message of messages) {
@@ -377,21 +371,21 @@ export async function exportConversation(id: string) {
       }
     }
   }
-  const blob = await exportConversationZip({
-    conversation,
+  const blob = await exportSessionZip({
+    session,
     messagesByModel,
     images,
   });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `conversation-${conversation.id}.zip`;
+  anchor.download = `session-${session.id}.zip`;
   anchor.click();
   URL.revokeObjectURL(url);
 }
 
 async function addMessageToModel({
-  conversation,
+  session,
   modelId,
   role,
   contentText,
@@ -400,7 +394,7 @@ async function addMessageToModel({
   error,
   runIndex,
 }: {
-  conversation: Conversation;
+  session: Session;
   modelId: string;
   role: MessageRole;
   contentText: string;
@@ -412,7 +406,7 @@ async function addMessageToModel({
   const now = Date.now();
   const message: Message = {
     id: createId("message"),
-    conversationId: conversation.id,
+    sessionId: session.id,
     modelId,
     role,
     contentText,
@@ -429,17 +423,17 @@ async function addMessageToModel({
   }
   // Reasoning and thinking blocks are expanded by default to show streaming content
   // Users can collapse them manually if desired
-  const state = $activeConversation.get();
+  const state = $activeSession.get();
   const list = state.messagesByModel[modelId] ?? [];
-  $activeConversation.set({
+  $activeSession.set({
     ...state,
     messagesByModel: {
       ...state.messagesByModel,
       [modelId]: [...list, message],
     },
   });
-  updateConversationTotals(conversation, state.statsByModel);
-  persistConversationDebounced(conversation);
+  updateSessionTotals(session, state.statsByModel);
+  persistSessionDebounced(session);
   return message;
 }
 
@@ -461,10 +455,10 @@ async function saveImageFromFile(file: File, size: number): Promise<string> {
 }
 
 export async function pushMessageToAll(input: InputState, size = 512) {
-  const conversation = $activeConversation.get().conversation;
+  const session = $activeSession.get().session;
   const settings = $settings.get();
   const uiState = $uiState.get();
-  if (!conversation || settings.selectedModelIds.length === 0) return;
+  if (!session || settings.selectedModelIds.length === 0) return;
   if (!input.text.trim() && input.pendingImages.length === 0) return;
 
   // If any models are solo'd, only send to those; otherwise send to all selected
@@ -483,7 +477,7 @@ export async function pushMessageToAll(input: InputState, size = 512) {
   await Promise.all(
     targetModelIds.map((modelId) =>
       addMessageToModel({
-        conversation,
+        session,
         modelId,
         role: input.role,
         contentText: input.text,
@@ -494,10 +488,10 @@ export async function pushMessageToAll(input: InputState, size = 512) {
 }
 
 export async function sendMessageToAll(input: InputState, size = 512) {
-  const conversation = $activeConversation.get().conversation;
+  const session = $activeSession.get().session;
   const settings = $settings.get();
   const uiState = $uiState.get();
-  if (!conversation || settings.selectedModelIds.length === 0) return;
+  if (!session || settings.selectedModelIds.length === 0) return;
   if (!input.text.trim() && input.pendingImages.length === 0) return;
 
   // If any models are solo'd, only send to those; otherwise send to all selected
@@ -516,7 +510,7 @@ export async function sendMessageToAll(input: InputState, size = 512) {
   await Promise.all(
     targetModelIds.map((modelId) =>
       addMessageToModel({
-        conversation,
+        session,
         modelId,
         role: input.role,
         contentText: input.text,
@@ -529,7 +523,7 @@ export async function sendMessageToAll(input: InputState, size = 512) {
     targetModelIds.flatMap((modelId) =>
       Array.from({ length: multiplier }, (_, index) =>
         requestCompletionForModel(
-          conversation,
+          session,
           modelId,
           index + 1, // Always assign runIndex (1, 2, 3, etc.) for consistency
         ),
@@ -539,18 +533,15 @@ export async function sendMessageToAll(input: InputState, size = 512) {
 }
 
 async function requestCompletionForModel(
-  conversation: Conversation,
+  session: Session,
   modelId: string,
   runIndex?: number,
 ) {
   const settings = $settings.get();
   if (!settings.apiKey) return;
-  const requestMessages = await buildOpenRouterMessages(
-    conversation.id,
-    modelId,
-  );
+  const requestMessages = await buildOpenRouterMessages(session.id, modelId);
   const assistantMessage = await addMessageToModel({
-    conversation,
+    session,
     modelId,
     role: "assistant",
     contentText: "",
@@ -563,14 +554,14 @@ async function requestCompletionForModel(
   const controllerKey = `${modelId}-${runIndex}`;
   streamControllers.set(controllerKey, controller);
   {
-    const next = $activeConversation.get();
-    $activeConversation.set({
+    const next = $activeSession.get();
+    $activeSession.set({
       ...next,
       streamingByModel: { ...next.streamingByModel, [modelId]: true },
       errorsByModel: { ...next.errorsByModel, [modelId]: null },
     });
   }
-  await ensureStatsForModel(conversation.id, modelId);
+  await ensureStatsForModel(session.id, modelId);
   const parameterOverrides = settings.perModelParameters[modelId] ?? {};
   const normalizedOverrides: Record<string, unknown> = {};
   Object.entries(parameterOverrides).forEach(([key, value]) => {
@@ -631,6 +622,8 @@ async function requestCompletionForModel(
   const reasoningEffortSet = matchingDefault?.reasoningEffortSet ?? false;
   const defaultTemperature = matchingDefault?.temperature; // May be undefined
   const temperatureSet = matchingDefault?.temperatureSet ?? false;
+  const outputFormat = matchingDefault?.outputFormat; // May be undefined
+  const outputFormatSet = matchingDefault?.outputFormatSet ?? false;
 
   // Build payload - exclude unsupported parameters for image-only models
   const payload: Record<string, unknown> = {
@@ -689,9 +682,17 @@ async function requestCompletionForModel(
     if (maxTokens !== undefined) payload.max_tokens = maxTokens;
     if (import.meta.env.DEV) {
       console.debug(
-        `[Conversation] Excluding text generation parameters for image-only model: ${modelId}`,
+        `[Session] Excluding text generation parameters for image-only model: ${modelId}`,
       );
     }
+  }
+
+  // Add output_format - per-model override takes precedence over default
+  const overrideOutputFormat = normalizedOverrides.output_format;
+  if (overrideOutputFormat !== undefined) {
+    payload.output_format = overrideOutputFormat;
+  } else if (outputFormatSet && outputFormat) {
+    payload.output_format = outputFormat;
   }
 
   // Add any other custom parameters from overrides (but exclude the ones we already handled)
@@ -705,6 +706,7 @@ async function requestCompletionForModel(
       key !== "frequency_penalty" &&
       key !== "presence_penalty" &&
       key !== "modalities" &&
+      key !== "output_format" &&
       value !== undefined
     ) {
       payload[key] = value;
@@ -713,7 +715,7 @@ async function requestCompletionForModel(
 
   if (import.meta.env.DEV) {
     console.debug(
-      `[Conversation] Request payload for ${modelId}:`,
+      `[Session] Request payload for ${modelId}:`,
       JSON.stringify(
         {
           model: payload.model,
@@ -752,7 +754,7 @@ async function requestCompletionForModel(
       runIndex: assistantMessage.runIndex, // Explicitly preserve runIndex
     };
     await saveMessage(messageCopy);
-    const current = $activeConversation.get();
+    const current = $activeSession.get();
     const list = current.messagesByModel[modelId] ?? [];
     const messageIndex = list.findIndex(
       (msg) => msg.id === assistantMessage.id,
@@ -761,13 +763,13 @@ async function requestCompletionForModel(
       messageIndex >= 0
         ? list.map((msg, idx) => (idx === messageIndex ? messageCopy : msg))
         : [...list, messageCopy];
-    $activeConversation.set({
+    $activeSession.set({
       ...current,
       messagesByModel: { ...current.messagesByModel, [modelId]: updatedList },
     });
     if (import.meta.env.DEV) {
       console.debug(
-        `[Conversation] Updated message ${assistantMessage.id} for ${modelId} (runIndex: ${runIndex}):`,
+        `[Session] Updated message ${assistantMessage.id} for ${modelId} (runIndex: ${runIndex}):`,
         {
           contentTextLength: messageCopy.contentText?.length ?? 0,
           contentTextPreview: messageCopy.contentText?.substring(0, 100),
@@ -780,7 +782,7 @@ async function requestCompletionForModel(
   };
 
   const finalizeWithStats = async () => {
-    const current = $activeConversation.get();
+    const current = $activeSession.get();
     const list = current.messagesByModel[modelId] ?? [];
     const updatedList = list.some((msg) => msg.id === assistantMessage.id)
       ? list.map((msg) =>
@@ -788,7 +790,7 @@ async function requestCompletionForModel(
         )
       : [...list, assistantMessage];
     const stats = current.statsByModel[modelId] ?? {
-      conversationId: conversation.id,
+      sessionId: session.id,
       modelId,
       inputTokens: 0,
       outputTokens: 0,
@@ -813,14 +815,14 @@ async function requestCompletionForModel(
     }
 
     if (import.meta.env.DEV) {
-      console.debug(`[Conversation] Finalizing stats for ${modelId}:`, {
+      console.debug(`[Session] Finalizing stats for ${modelId}:`, {
         previousStats: stats,
         usage,
         calculatedCost,
       });
     }
 
-    const nextStats: ConversationStats = {
+    const nextStats: SessionStats = {
       ...stats,
       inputTokens: (toNumber(stats.inputTokens) ?? 0) + promptTokens,
       outputTokens: (toNumber(stats.outputTokens) ?? 0) + completionTokens,
@@ -831,7 +833,7 @@ async function requestCompletionForModel(
     const stillStreaming = Array.from(streamControllers.keys()).some((key) =>
       key.startsWith(`${modelId}-`),
     );
-    const nextState: ActiveConversationState = {
+    const nextState: ActiveSessionState = {
       ...current,
       messagesByModel: { ...current.messagesByModel, [modelId]: updatedList },
       statsByModel: { ...current.statsByModel, [modelId]: nextStats },
@@ -840,16 +842,16 @@ async function requestCompletionForModel(
         [modelId]: stillStreaming,
       },
     };
-    updateConversationTotals(conversation, nextState.statsByModel);
-    if (!conversation.hasRun) {
-      conversation.hasRun = true;
-      conversation.firstRunAt = conversation.firstRunAt ?? Date.now();
+    updateSessionTotals(session, nextState.statsByModel);
+    if (!session.hasExecuted) {
+      session.hasExecuted = true;
+      session.firstExecutedAt = session.firstExecutedAt ?? Date.now();
     }
-    $activeConversation.set(nextState);
-    if (!deletedConversationIds.has(conversation.id)) {
-      await saveConversation(conversation);
+    $activeSession.set(nextState);
+    if (!deletedSessionIds.has(session.id)) {
+      await saveSession(session);
     }
-    upsertHistoryConversation(conversation);
+    upsertHistorySession(session);
   };
 
   const runFallback = async () => {
@@ -940,7 +942,7 @@ async function requestCompletionForModel(
         imagesStored;
       if (!sawOutput) {
         if (import.meta.env.DEV) {
-          console.warn("[Conversation] No output detected:", {
+          console.warn("[Session] No output detected:", {
             contentText: assistantMessage.contentText,
             contentReasoning: assistantMessage.contentReasoning,
             contentThinking: assistantMessage.contentThinking,
@@ -965,12 +967,12 @@ async function requestCompletionForModel(
       assistantMessage.error = (error as Error).message;
       assistantMessage.updatedAt = Date.now();
       await applyAssistantUpdate();
-      const current = $activeConversation.get();
+      const current = $activeSession.get();
       // Check if any other runs are still streaming for this model
       const stillStreaming = Array.from(streamControllers.keys()).some((key) =>
         key.startsWith(`${modelId}-`),
       );
-      $activeConversation.set({
+      $activeSession.set({
         ...current,
         streamingByModel: {
           ...current.streamingByModel,
@@ -1008,7 +1010,7 @@ async function requestCompletionForModel(
         assistantMessage.contentText = currentText + token;
         assistantMessage.updatedAt = Date.now();
         if (import.meta.env.DEV) {
-          console.debug(`[Conversation] Token received for ${modelId}:`, {
+          console.debug(`[Session] Token received for ${modelId}:`, {
             tokenPreview: token.substring(0, 50),
             totalLength: assistantMessage.contentText.length,
           });
@@ -1033,7 +1035,7 @@ async function requestCompletionForModel(
         assistantMessage.updatedAt = Date.now();
         if (import.meta.env.DEV) {
           console.debug(
-            `[Conversation] Reasoning token for ${modelId}:`,
+            `[Session] Reasoning token for ${modelId}:`,
             token.substring(0, 100),
           );
         }
@@ -1057,7 +1059,7 @@ async function requestCompletionForModel(
         assistantMessage.updatedAt = Date.now();
         if (import.meta.env.DEV) {
           console.debug(
-            `[Conversation] Thinking token for ${modelId}:`,
+            `[Session] Thinking token for ${modelId}:`,
             token.substring(0, 100),
           );
         }
@@ -1065,7 +1067,7 @@ async function requestCompletionForModel(
       },
       onMessage: async (message) => {
         if (import.meta.env.DEV) {
-          console.debug(`[Conversation] Message callback for ${modelId}:`, {
+          console.debug(`[Session] Message callback for ${modelId}:`, {
             textLength: message.text?.length ?? 0,
             textPreview: message.text?.substring(0, 100),
             imageUrls: message.imageUrls.length,
@@ -1106,10 +1108,7 @@ async function requestCompletionForModel(
       },
       onUsage: (nextUsage) => {
         if (import.meta.env.DEV) {
-          console.debug(
-            `[Conversation] Usage update for ${modelId}:`,
-            nextUsage,
-          );
+          console.debug(`[Session] Usage update for ${modelId}:`, nextUsage);
         }
         const normalized = {
           prompt_tokens: toNumber(nextUsage.prompt_tokens),
@@ -1125,7 +1124,7 @@ async function requestCompletionForModel(
       },
       onError: async (error) => {
         if (import.meta.env.DEV) {
-          console.error(`[Conversation] Stream error for ${modelId}:`, error);
+          console.error(`[Session] Stream error for ${modelId}:`, error);
         }
         if (abortForFallback) return;
         assistantMessage.status = "error";
@@ -1133,8 +1132,8 @@ async function requestCompletionForModel(
         assistantMessage.error = error.message;
         assistantMessage.updatedAt = Date.now();
         await applyAssistantUpdate();
-        const current = $activeConversation.get();
-        $activeConversation.set({
+        const current = $activeSession.get();
+        $activeSession.set({
           ...current,
           errorsByModel: { ...current.errorsByModel, [modelId]: error.message },
         });
@@ -1142,7 +1141,7 @@ async function requestCompletionForModel(
       onDone: async () => {
         window.clearTimeout(fallbackTimeout);
         if (import.meta.env.DEV) {
-          console.debug(`[Conversation] Stream done for ${modelId}`, {
+          console.debug(`[Session] Stream done for ${modelId}`, {
             contentTextLength: assistantMessage.contentText?.length ?? 0,
             imageIds: assistantMessage.imageIds.length,
             attachments: pendingAttachments.length,
@@ -1170,7 +1169,7 @@ async function requestCompletionForModel(
         const imagesStored = storedIds.length > 0;
         if (import.meta.env.DEV && imagesStored) {
           console.debug(
-            `[Conversation] Stored ${storedIds.length} image(s) for ${modelId}`,
+            `[Session] Stored ${storedIds.length} image(s) for ${modelId}`,
           );
         }
 
@@ -1197,7 +1196,7 @@ async function requestCompletionForModel(
           imagesStored;
 
         if (import.meta.env.DEV) {
-          console.debug(`[Conversation] Stream done check for ${modelId}:`, {
+          console.debug(`[Session] Stream done check for ${modelId}:`, {
             sawOutput,
             hasText,
             contentTextLength: assistantMessage.contentText?.length ?? 0,
@@ -1217,7 +1216,7 @@ async function requestCompletionForModel(
         if (!sawOutput) {
           if (import.meta.env.DEV) {
             console.warn(
-              `[Conversation] Stream completed with no output for ${modelId}:`,
+              `[Session] Stream completed with no output for ${modelId}:`,
               {
                 contentText: assistantMessage.contentText,
                 contentReasoning: assistantMessage.contentReasoning,
@@ -1246,8 +1245,8 @@ async function requestCompletionForModel(
     assistantMessage.error = (error as Error).message;
     assistantMessage.updatedAt = Date.now();
     await applyAssistantUpdate();
-    const current = $activeConversation.get();
-    $activeConversation.set({
+    const current = $activeSession.get();
+    $activeSession.set({
       ...current,
       streamingByModel: { ...current.streamingByModel, [modelId]: false },
       errorsByModel: {
@@ -1281,12 +1280,12 @@ export async function abortStream(modelId: string, runIndex?: number) {
     if (controller) {
       controller.abort();
       streamControllers.delete(controllerKey);
-      const state = $activeConversation.get();
+      const state = $activeSession.get();
       // Check if any other runs are still streaming for this model
       const stillStreaming = Array.from(streamControllers.keys()).some((key) =>
         key.startsWith(`${modelId}-`),
       );
-      $activeConversation.set({
+      $activeSession.set({
         ...state,
         streamingByModel: {
           ...state.streamingByModel,
@@ -1304,8 +1303,8 @@ export async function abortStream(modelId: string, runIndex?: number) {
       }
     });
     keysToDelete.forEach((key) => streamControllers.delete(key));
-    const state = $activeConversation.get();
-    $activeConversation.set({
+    const state = $activeSession.get();
+    $activeSession.set({
       ...state,
       streamingByModel: { ...state.streamingByModel, [modelId]: false },
     });
@@ -1317,11 +1316,11 @@ export async function removeMessageFromModel(
   messageId: string,
   runIndex?: number,
 ) {
-  const conversation = $activeConversation.get().conversation;
-  if (!conversation) return;
+  const session = $activeSession.get().session;
+  if (!session) return;
 
   // Get the message to check if it's a user message (shared across runs)
-  const messages = await getMessages(conversation.id, modelId);
+  const messages = await getMessages(session.id, modelId);
   const messageToDelete = messages.find((msg) => msg.id === messageId);
 
   if (messageToDelete && messageToDelete.runIndex === undefined) {
@@ -1345,7 +1344,7 @@ export async function removeMessageFromModel(
       );
       if (firstAssistantForRun !== -1) {
         await deleteMessagesAfter(
-          conversation.id,
+          session.id,
           modelId,
           messages[firstAssistantForRun].id,
           runIndex,
@@ -1353,27 +1352,27 @@ export async function removeMessageFromModel(
       }
     } else {
       // No other runs using this user message, or runIndex not specified - delete normally
-      await deleteMessagesAfter(conversation.id, modelId, messageId, runIndex);
+      await deleteMessagesAfter(session.id, modelId, messageId, runIndex);
     }
   } else {
     // Assistant message or runIndex specified - delete messages for this run
-    await deleteMessagesAfter(conversation.id, modelId, messageId, runIndex);
+    await deleteMessagesAfter(session.id, modelId, messageId, runIndex);
   }
 
-  const remaining = await getMessages(conversation.id, modelId);
-  const state = $activeConversation.get();
-  $activeConversation.set({
+  const remaining = await getMessages(session.id, modelId);
+  const state = $activeSession.get();
+  $activeSession.set({
     ...state,
     messagesByModel: { ...state.messagesByModel, [modelId]: remaining },
   });
-  updateConversationTotals(conversation, state.statsByModel);
-  await saveConversation(conversation);
+  updateSessionTotals(session, state.statsByModel);
+  await saveSession(session);
 }
 
 export async function rerunLastAssistantMessage(modelId: string) {
-  const state = $activeConversation.get();
-  const conversation = state.conversation;
-  if (!conversation) return;
+  const state = $activeSession.get();
+  const session = state.session;
+  if (!session) return;
 
   const messages = state.messagesByModel[modelId] ?? [];
   if (messages.length === 0) return;
@@ -1397,53 +1396,94 @@ export async function rerunLastAssistantMessage(modelId: string) {
     await deleteMessage(lastAssistantMessage.id);
   } else {
     // If the assistant is the last message, delete it and everything after (nothing)
-    await deleteMessagesAfter(
-      conversation.id,
-      modelId,
-      lastAssistantMessage.id,
-    );
+    await deleteMessagesAfter(session.id, modelId, lastAssistantMessage.id);
   }
 
   // Reload messages and re-run completion
-  const updatedMessages = await getMessages(conversation.id, modelId);
-  $activeConversation.set({
+  const updatedMessages = await getMessages(session.id, modelId);
+  $activeSession.set({
     ...state,
     messagesByModel: { ...state.messagesByModel, [modelId]: updatedMessages },
   });
 
   // Re-run the completion
-  await requestCompletionForModel(conversation, modelId);
+  await requestCompletionForModel(session, modelId);
 }
 
-export async function ensureConversationLoaded() {
-  if (!$activeConversationId.get()) {
-    await initializeConversation();
+export async function ensureSessionLoaded() {
+  if (!$activeSessionId.get()) {
+    await initializeSession();
     return;
   }
-  const conversation = await getConversation($activeConversationId.get()!);
-  if (!conversation) {
-    await initializeConversation();
+  const session = await getSession($activeSessionId.get()!);
+  if (!session) {
+    await initializeSession();
   } else {
-    await loadConversation(conversation.id);
+    await loadSession(session.id);
   }
 }
 
-export async function syncConversationModels(modelIds: string[]) {
-  const state = $activeConversation.get();
-  const conversation = state.conversation;
-  if (!conversation) return;
-  const updatedConversation = { ...conversation, modelIds };
+export async function updateSessionTitle(
+  title: string | undefined,
+  sessionId?: string,
+) {
+  const targetId = sessionId;
+  if (targetId) {
+    // Update a specific session by ID
+    const session = await getSession(targetId);
+    if (!session) return;
+    const updatedSession = {
+      ...session,
+      title: title?.trim() || undefined,
+    };
+    await saveSession(updatedSession);
+    upsertHistorySession(updatedSession);
+    // Update active session if it matches
+    const state = $activeSession.get();
+    if (state.session?.id === targetId) {
+      $activeSession.set({
+        ...state,
+        session: updatedSession,
+      });
+    }
+    return;
+  }
+
+  // Update active session (original behavior)
+  const state = $activeSession.get();
+  const session = state.session;
+  if (!session) return;
+  const updatedSession = {
+    ...session,
+    title: title?.trim() || undefined,
+  };
+  $activeSession.set({
+    ...state,
+    session: updatedSession,
+  });
+  // Always persist title changes, even if session hasn't executed yet
+  if (!deletedSessionIds.has(updatedSession.id)) {
+    await saveSession(updatedSession);
+  }
+  upsertHistorySession(updatedSession);
+}
+
+export async function syncSessionModels(modelIds: string[]) {
+  const state = $activeSession.get();
+  const session = state.session;
+  if (!session) return;
+  const updatedSession = { ...session, modelIds };
   const messagesByModel: Record<string, Message[]> = {};
-  const statsByModel: Record<string, ConversationStats> = {};
-  const missingStats: ConversationStats[] = [];
+  const statsByModel: Record<string, SessionStats> = {};
+  const missingStats: SessionStats[] = [];
   for (const modelId of modelIds) {
     messagesByModel[modelId] = state.messagesByModel[modelId] ?? [];
     if (state.statsByModel[modelId]) {
       statsByModel[modelId] = state.statsByModel[modelId];
       continue;
     }
-    const stat: ConversationStats = {
-      conversationId: updatedConversation.id,
+    const stat: SessionStats = {
+      sessionId: updatedSession.id,
       modelId,
       inputTokens: 0,
       outputTokens: 0,
@@ -1452,20 +1492,17 @@ export async function syncConversationModels(modelIds: string[]) {
     statsByModel[modelId] = stat;
     missingStats.push(stat);
   }
-  if (updatedConversation.hasRun && missingStats.length) {
+  if (updatedSession.hasExecuted && missingStats.length) {
     await Promise.all(missingStats.map((stat) => saveStats(stat)));
   }
-  $activeConversation.set({
+  $activeSession.set({
     ...state,
-    conversation: updatedConversation,
+    session: updatedSession,
     messagesByModel,
     statsByModel,
   });
-  if (
-    updatedConversation.hasRun &&
-    !deletedConversationIds.has(updatedConversation.id)
-  ) {
-    await saveConversation(updatedConversation);
+  if (updatedSession.hasExecuted && !deletedSessionIds.has(updatedSession.id)) {
+    await saveSession(updatedSession);
   }
-  upsertHistoryConversation(updatedConversation);
+  upsertHistorySession(updatedSession);
 }

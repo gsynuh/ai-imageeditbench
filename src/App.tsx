@@ -5,18 +5,19 @@ import { Button } from "./components/ui/button";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { $activeView, setActiveView } from "./stores/appStore";
 import {
-  ensureConversationLoaded,
+  ensureSessionLoaded,
   loadHistory,
-  syncConversationModels,
-} from "./stores/conversationsStore";
+  syncSessionModels,
+} from "./stores/sessionsStore";
 import { $settings, loadSettings } from "./stores/settingsStore";
 import { loadStoredModels } from "./stores/modelsStore";
 import { loadDefaults } from "./stores/defaultsStore";
 import { pruneSoloModels } from "./stores/uiStore";
-import MainView from "./features/main/MainView";
+import SessionView from "./features/session/SessionView";
 import ModelsView from "./features/models/ModelsView";
 import StatsView from "./features/stats/StatsView";
 import DefaultsView from "./features/defaults/DefaultsView";
+import HistoryView from "./features/history/HistoryView";
 import { $headerCenter, $headerRightActions } from "./stores/headerStore";
 
 function App() {
@@ -30,14 +31,14 @@ function App() {
       await loadSettings();
       await loadStoredModels();
       await loadDefaults();
-      await ensureConversationLoaded();
+      await ensureSessionLoaded();
       await loadHistory();
     })();
   }, []);
 
   useEffect(() => {
     pruneSoloModels(settings.selectedModelIds);
-    void syncConversationModels(settings.selectedModelIds);
+    void syncSessionModels(settings.selectedModelIds);
   }, [settings.selectedModelIds]);
 
   return (
@@ -48,11 +49,11 @@ function App() {
 
           <nav className={styles.viewTabs} aria-label="Primary views">
             <Button
-              variant={activeView === "main" ? "default" : "secondary"}
-              onClick={() => setActiveView("main")}
+              variant={activeView === "session" ? "default" : "secondary"}
+              onClick={() => setActiveView("session")}
               type="button"
             >
-              Board
+              Session
             </Button>
             <Button
               variant={activeView === "models" ? "default" : "secondary"}
@@ -66,7 +67,14 @@ function App() {
               onClick={() => setActiveView("defaults")}
               type="button"
             >
-              Defaults
+              Settings
+            </Button>
+            <Button
+              variant={activeView === "history" ? "default" : "secondary"}
+              onClick={() => setActiveView("history")}
+              type="button"
+            >
+              History
             </Button>
             <Button
               variant={activeView === "stats" ? "default" : "secondary"}
@@ -99,9 +107,9 @@ function App() {
       </header>
 
       <section className={styles.viewContainer}>
-        {activeView === "main" && (
+        {activeView === "session" && (
           <ErrorBoundary>
-            <MainView />
+            <SessionView />
           </ErrorBoundary>
         )}
         {activeView === "models" && (
@@ -112,6 +120,11 @@ function App() {
         {activeView === "defaults" && (
           <ErrorBoundary>
             <DefaultsView />
+          </ErrorBoundary>
+        )}
+        {activeView === "history" && (
+          <ErrorBoundary>
+            <HistoryView />
           </ErrorBoundary>
         )}
         {activeView === "stats" && (

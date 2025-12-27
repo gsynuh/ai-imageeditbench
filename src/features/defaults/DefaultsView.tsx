@@ -69,6 +69,12 @@ function DefaultEntryForm({
   const [keepOnlyLastImageSet, setKeepOnlyLastImageSet] = useState(
     entry?.keepOnlyLastImageSet ?? false,
   );
+  const [outputFormat, setOutputFormat] = useState<"png" | "jpeg" | "webp">(
+    entry?.outputFormat ?? "png",
+  );
+  const [outputFormatSet, setOutputFormatSet] = useState(
+    entry?.outputFormatSet ?? false,
+  );
   const [filterError, setFilterError] = useState<string | null>(null);
 
   const matchingModels = useMemo(() => {
@@ -119,6 +125,8 @@ function DefaultEntryForm({
       temperatureSet,
       keepOnlyLastImage: keepOnlyLastImageSet ? keepOnlyLastImage : false,
       keepOnlyLastImageSet,
+      outputFormat: outputFormatSet ? outputFormat : undefined,
+      outputFormatSet,
     });
   };
 
@@ -201,7 +209,7 @@ function DefaultEntryForm({
           id="entry-system-message"
           value={systemMessage}
           onChange={(e) => setSystemMessage(e.target.value)}
-          placeholder="Default system message to prepend to conversations"
+          placeholder="Default system message to prepend to sessions"
           rows={4}
           disabled={!systemMessageSet}
         />
@@ -330,6 +338,38 @@ function DefaultEntryForm({
         )}
         <p className="text-xs text-[var(--muted)] ml-6">
           If enabled, the app ignores all but the last image a model returns.
+        </p>
+      </div>
+      <div
+        className={`${styles.formRow} ${styles.formFieldGroup} ${
+          !outputFormatSet ? styles.disabled : ""
+        }`}
+      >
+        <label className="flex items-center gap-2">
+          <Checkbox
+            checked={outputFormatSet}
+            onCheckedChange={(value) => setOutputFormatSet(Boolean(value))}
+          />
+          <span className="text-xs text-[var(--muted)]">
+            Image Output Format
+          </span>
+        </label>
+        {outputFormatSet && (
+          <SelectPopover
+            value={outputFormat}
+            onValueChange={(value) =>
+              setOutputFormat(value as "png" | "jpeg" | "webp")
+            }
+            items={[
+              { value: "png", label: "PNG" },
+              { value: "jpeg", label: "JPEG" },
+              { value: "webp", label: "WebP" },
+            ]}
+          />
+        )}
+        <p className="text-xs text-[var(--muted)] ml-6">
+          Format for generated images. PNG preserves quality, JPEG/WebP may
+          compress.
         </p>
       </div>
       <div className={styles.formActions}>
@@ -533,6 +573,13 @@ export default function DefaultsView() {
                     <span className="text-xs text-[var(--muted)]">
                       Keep Only One Image:{" "}
                       {entry.keepOnlyLastImage ? "Yes" : "No"}
+                    </span>
+                  </div>
+                )}
+                {entry.outputFormatSet && (
+                  <div className={styles.formRow}>
+                    <span className="text-xs text-[var(--muted)]">
+                      Image Output Format: {entry.outputFormat?.toUpperCase()}
                     </span>
                   </div>
                 )}

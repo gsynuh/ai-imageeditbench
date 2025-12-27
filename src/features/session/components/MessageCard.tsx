@@ -1,6 +1,6 @@
 import { useStore } from "@nanostores/react";
 import type { Message } from "../../../types/db";
-import styles from "../MainView.module.scss";
+import styles from "../SessionView.module.scss";
 import { Button } from "../../../components/ui/button";
 import { formatDuration, formatTimestamp } from "../../../lib/utils";
 import {

@@ -1,52 +1,102 @@
-import { useEffect } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useStore } from "@nanostores/react";
-import styles from "./MainView.module.scss";
+import styles from "./SessionView.module.scss";
 import { ErrorBoundary } from "../../components/ErrorBoundary";
 import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
 import {
-  $activeConversation,
-  resetConversation,
-} from "../../stores/conversationsStore";
+  $activeSession,
+  resetSession,
+  updateSessionTitle,
+} from "../../stores/sessionsStore";
 import { $models } from "../../stores/modelsStore";
 import { $settings, moveSelectedModel } from "../../stores/settingsStore";
-import { setActiveView } from "../../stores/appStore";
 import ModelColumn from "./components/ModelColumn";
 import InputDock from "./components/InputDock";
-import { History, RotateCcw, ArrowLeft, ArrowRight, Dot } from "lucide-react";
+import { RotateCcw, ArrowLeft, ArrowRight, Dot } from "lucide-react";
 import {
   setHeaderCenter,
   setHeaderRightActions,
   type HeaderAction,
 } from "../../stores/headerStore";
 
-function getMainViewHeaderActions(): HeaderAction[] {
+function getSessionViewHeaderActions(): HeaderAction[] {
   return [
     {
-      key: "clear-board",
-      label: "Clear Board",
+      key: "clear-session",
+      label: "Clear Session",
       icon: RotateCcw,
-      onClick: resetConversation,
-      variant: "secondary",
-    },
-    {
-      key: "open-history",
-      label: "Open History",
-      icon: History,
-      onClick: () => setActiveView("stats"),
+      onClick: resetSession,
       variant: "secondary",
     },
   ];
 }
 
-export default function MainView() {
-  const conversationState = useStore($activeConversation);
+function SessionTitleInput() {
+  const sessionState = useStore($activeSession);
+  const sessionId = sessionState.session?.id;
+  const savedTitle = sessionState.session?.title ?? "";
+  const [localTitle, setLocalTitle] = useState<string>("");
+  const prevSessionIdRef = useRef<string | undefined>(sessionId);
+
+  // Reset local title when session changes
+  if (prevSessionIdRef.current !== sessionId) {
+    prevSessionIdRef.current = sessionId;
+    setLocalTitle("");
+  }
+
+  // Use local title if it's been set, otherwise use saved title
+  const displayTitle = localTitle || savedTitle;
+
+  const handleChange = (value: string) => {
+    setLocalTitle(value);
+  };
+
+  const handleBlur = () => {
+    const finalTitle = localTitle || savedTitle;
+    setLocalTitle("");
+    void updateSessionTitle(finalTitle);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.currentTarget.blur();
+    }
+  };
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "8px",
+        minWidth: "200px",
+        maxWidth: "400px",
+      }}
+    >
+      <Input
+        type="text"
+        placeholder="Session name..."
+        value={displayTitle}
+        onChange={(e) => handleChange(e.target.value)}
+        onBlur={handleBlur}
+        onKeyDown={handleKeyDown}
+        style={{ fontSize: "0.9rem" }}
+      />
+    </div>
+  );
+}
+
+export default function SessionView() {
+  const sessionState = useStore($activeSession);
   const models = useStore($models);
   const settings = useStore($settings);
 
   const activeModels = settings.selectedModelIds;
 
   useEffect(() => {
-    setHeaderRightActions(getMainViewHeaderActions());
+    setHeaderRightActions(getSessionViewHeaderActions());
+    setHeaderCenter(<SessionTitleInput />);
     return () => {
       setHeaderCenter(null);
       setHeaderRightActions([]);
@@ -54,7 +104,7 @@ export default function MainView() {
   }, []);
 
   return (
-    <div className={styles.mainView}>
+    <div className={styles.sessionView}>
       <div className={styles.columnsSection}>
         {activeModels.length > 0 && (
           <div className={styles.columnControls}>
@@ -102,8 +152,8 @@ export default function MainView() {
         <div className={styles.columnsGrid}>
           {activeModels.map((modelId) => {
             const modelInfo = models.find((model) => model.id === modelId);
-            const messages = conversationState.messagesByModel[modelId] ?? [];
-            const stats = conversationState.statsByModel[modelId];
+            const messages = sessionState.messagesByModel[modelId] ?? [];
+            const stats = sessionState.statsByModel[modelId];
             return (
               <ErrorBoundary
                 key={modelId}
@@ -121,7 +171,7 @@ export default function MainView() {
                   modelName={modelInfo?.name ?? modelId}
                   messages={messages}
                   stats={stats}
-                  isStreaming={conversationState.streamingByModel[modelId]}
+                  isStreaming={sessionState.streamingByModel[modelId]}
                 />
               </ErrorBoundary>
             );

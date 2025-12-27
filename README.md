@@ -4,7 +4,7 @@ _imageeditbench_
 
 ![Preview](preview.png)
 
-A tool for comparing AI models side-by-side. Send the same message to multiple models simultaneously, isolate individual conversations, or configure model settings in "Defaults" with base model specific system messages.  
+A tool for comparing AI models side-by-side. Send the same message to multiple models simultaneously, isolate individual model columns, or configure model settings in "Defaults" with base model specific system messages.  
 Supports image input/output, reasoning tokens, and effort settings.
 
 **Built on OpenRouter.**  

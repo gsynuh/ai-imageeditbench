@@ -121,7 +121,7 @@ export default function ImageViewer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [natural]);
 
-  const clampPan = (nextX: number, nextY: number) => {
+  const clampPan = (nextX: number, nextY: number): { x: number; y: number } => {
     if (!containerRef.current || !natural) return { x: nextX, y: nextY };
     const rect = containerRef.current.getBoundingClientRect();
     const viewW = rect.width;

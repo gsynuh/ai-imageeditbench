@@ -27,9 +27,10 @@ Welcome! Please follow these conventions when making changes:
 
 ## Before declaring a task complete, please run (in order) and ensure PASS:
 
-1. `npm run lint`
-2. tsc to check for typescript errors
-3. `npm run format`
+1. `read_lints()` - Check all files using the IDE linter (most thorough). If this tool is unavailable or fails, fall back to CLI checks:
+   - `npm run lint`
+   - `npx tsc --noEmit` (or `npx tsc --noEmit --project tsconfig.app.json`)
+2. `npm run format`
 
 Avoid Building or transpiling to .js
 

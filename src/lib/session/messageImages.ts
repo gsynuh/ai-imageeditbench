@@ -34,7 +34,7 @@ async function getImageDimensions(
   }
 }
 
-function isLikelyImageName(name: string) {
+function isLikelyImageName(name: string): boolean {
   const lower = name.toLowerCase();
   return (
     lower.endsWith(".png") ||

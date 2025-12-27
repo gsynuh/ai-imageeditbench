@@ -1,5 +1,5 @@
 import { zipSync, strToU8 } from "fflate";
-import type { Conversation, ImageAsset, Message } from "../types/db";
+import type { ImageAsset, Message, Session } from "../types/db";
 
 function getImageExtension(mimeType: string) {
   if (mimeType.includes("png")) return "png";
@@ -12,30 +12,30 @@ function formatDate(timestamp: number) {
   return new Date(timestamp).toLocaleString();
 }
 
-export async function exportConversationZip({
-  conversation,
+export async function exportSessionZip({
+  session,
   messagesByModel,
   images,
 }: {
-  conversation: Conversation;
+  session: Session;
   messagesByModel: Record<string, Message[]>;
   images: Record<string, ImageAsset>;
 }): Promise<Blob> {
   const markdownLines: string[] = [];
-  markdownLines.push(`# Conversation ${conversation.id}`);
-  markdownLines.push(`- Created: ${formatDate(conversation.createdAt)}`);
-  markdownLines.push(`- Updated: ${formatDate(conversation.updatedAt)}`);
-  markdownLines.push(`- Models: ${conversation.modelIds.join(", ")}`);
-  markdownLines.push(`- Total tokens: ${conversation.totalTokens}`);
+  markdownLines.push(`# Session ${session.id}`);
+  markdownLines.push(`- Created: ${formatDate(session.createdAt)}`);
+  markdownLines.push(`- Updated: ${formatDate(session.updatedAt)}`);
+  markdownLines.push(`- Models: ${session.modelIds.join(", ")}`);
+  markdownLines.push(`- Total tokens: ${session.totalTokens}`);
   markdownLines.push(
     `- Total cost: $${
-      typeof conversation.totalCost === "number"
-        ? conversation.totalCost.toFixed(4)
+      typeof session.totalCost === "number"
+        ? session.totalCost.toFixed(4)
         : "0.0000"
     }`,
   );
   markdownLines.push("");
-  for (const modelId of conversation.modelIds) {
+  for (const modelId of session.modelIds) {
     markdownLines.push(`## Model: ${modelId}`);
     const messages = messagesByModel[modelId] ?? [];
     for (const message of messages) {
@@ -59,7 +59,7 @@ export async function exportConversationZip({
   }
 
   const files: Record<string, Uint8Array> = {
-    "conversation.md": strToU8(markdownLines.join("\n")),
+    "session.md": strToU8(markdownLines.join("\n")),
   };
 
   for (const [imageId, asset] of Object.entries(images)) {

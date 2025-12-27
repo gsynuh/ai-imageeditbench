@@ -1,7 +1,7 @@
 import type { ClipboardEvent, DragEvent } from "react";
 import { useMemo, useRef, useState } from "react";
 import { useStore } from "@nanostores/react";
-import styles from "../MainView.module.scss";
+import styles from "../SessionView.module.scss";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { Textarea } from "../../../components/ui/textarea";
@@ -19,7 +19,7 @@ import { $settings } from "../../../stores/settingsStore";
 import {
   pushMessageToAll,
   sendMessageToAll,
-} from "../../../stores/conversationsStore";
+} from "../../../stores/sessionsStore";
 import ImageEditor from "./ImageEditor";
 import { ImagePlus, Send, Upload, X } from "lucide-react";
 

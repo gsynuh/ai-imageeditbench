@@ -1,0 +1,124 @@
+@use "../../styles/mixins.scss" as mixins;
+
+.historyView {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.panel {
+  @include mixins.panel-surface;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.historyList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.historyItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 12px;
+  border-radius: 12px;
+}
+
+.historyItemContent {
+  flex: 1;
+  min-width: 0;
+}
+
+.historyItemHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.historyItemHeader strong {
+  flex: 1;
+  min-width: 0;
+}
+
+.historyItemRename {
+  flex-shrink: 0;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+
+  &:hover {
+    opacity: 1;
+  }
+}
+
+.historyItemMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.historyItemModels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.historyItemModelId {
+  font-size: 0.75rem;
+  padding: 2px 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  color: var(--muted);
+  font-family:
+    ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas,
+    "DejaVu Sans Mono", monospace;
+}
+
+.historyItemMeta p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.historyItemMuted {
+  color: var(--muted);
+  border-style: dashed;
+}
+
+.historyItemEdit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.historyItemInput {
+  flex: 1;
+  min-width: 0;
+}
+
+.historyItemEditActions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.historyControls {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.historySearch {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}

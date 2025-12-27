@@ -1,4 +1,4 @@
-export type ViewKey = "main" | "models" | "stats" | "defaults";
+export type ViewKey = "session" | "models" | "stats" | "defaults" | "history";
 
 export type MessageRole = "system" | "user" | "assistant" | "tool";
 
@@ -16,7 +16,7 @@ export interface ImageAsset {
 
 export interface Message {
   id: string;
-  conversationId: string;
+  sessionId: string;
   modelId: string;
   role: MessageRole;
   contentText: string;
@@ -32,21 +32,21 @@ export interface Message {
   runIndex?: number; // 1-based run index when multiplier > 1
 }
 
-export interface Conversation {
+export interface Session {
   id: string;
   createdAt: number;
   updatedAt: number;
   modelIds: string[];
   title?: string;
-  hasRun: boolean;
-  firstRunAt?: number;
+  hasExecuted: boolean;
+  firstExecutedAt?: number;
   messageCount: number;
   totalTokens: number;
   totalCost: number;
 }
 
-export interface ConversationStats {
-  conversationId: string;
+export interface SessionStats {
+  sessionId: string;
   modelId: string;
   inputTokens: number;
   outputTokens: number;
@@ -87,6 +87,8 @@ export interface DefaultEntry {
   temperatureSet: boolean; // Whether temperature is set
   keepOnlyLastImage: boolean; // Whether to keep only the last received image
   keepOnlyLastImageSet: boolean; // Whether keepOnlyLastImage is set
+  outputFormat?: "png" | "jpeg" | "webp"; // Image output format (only sent if set)
+  outputFormatSet: boolean; // Whether output format is set
   createdAt: number;
   updatedAt: number;
 }
