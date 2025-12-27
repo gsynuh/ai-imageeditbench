@@ -122,7 +122,6 @@ export default function MainView() {
                   messages={messages}
                   stats={stats}
                   isStreaming={conversationState.streamingByModel[modelId]}
-                  error={conversationState.errorsByModel[modelId]}
                 />
               </ErrorBoundary>
             );

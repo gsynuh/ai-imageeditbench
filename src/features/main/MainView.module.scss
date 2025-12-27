@@ -207,6 +207,12 @@
   color: var(--muted);
 }
 
+.messageError {
+  word-break: break-word;
+  overflow-wrap: break-word;
+  max-width: 100%;
+}
+
 .columnFooter {
   display: flex;
   align-items: center;

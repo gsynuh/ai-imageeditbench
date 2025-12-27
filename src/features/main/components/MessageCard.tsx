@@ -70,11 +70,16 @@ export default function MessageCard({
           <span>{formatTimestamp(message.createdAt)}</span>
         </div>
       </div>
-      {message.error && (
-        <div className="text-xs text-[var(--danger)]">{message.error}</div>
-      )}
       {!isCollapsed && !isHidden && (
         <>
+          {/* Show error for assistant messages only */}
+          {message.error && message.role === "assistant" && (
+            <div
+              className={`text-xs text-[var(--danger)] break-words whitespace-pre-wrap ${styles.messageError}`}
+            >
+              {message.error}
+            </div>
+          )}
           {/* Show reasoning/thinking FIRST, before main content - always expanded by default */}
           {(hasReasoning || hasThinking) && (
             <div className="flex flex-col gap-2 mb-3">

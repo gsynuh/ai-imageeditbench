@@ -21,14 +21,12 @@ export default function ModelColumn({
   messages,
   stats,
   isStreaming,
-  error,
 }: {
   modelId: string;
   modelName: string;
   messages: Message[];
   stats?: ConversationStats;
   isStreaming?: boolean;
-  error?: string | null;
 }) {
   const [imageUrls, setImageUrls] = useState<
     Record<string, Array<{ id: string; url: string }>>
@@ -166,7 +164,6 @@ export default function ModelColumn({
               ))}
             </div>
           )}
-          {error && <p className="text-xs text-[var(--danger)]">{error}</p>}
         </div>
         <div className="flex gap-2">
           <Button

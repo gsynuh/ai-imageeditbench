@@ -1,4 +1,5 @@
-# S/B/S 
+# S/B/S
+
 _imageeditbench_
 
 ![Preview](preview.png)
@@ -9,10 +10,10 @@ Supports image input/output, reasoning tokens, and effort settings.
 **Built on OpenRouter.**  
 (Requires API key to run. Careful... budget exploses real quick especially with recent gemini 3 pro image and others)
 
-**Vibe coded with GPT 5.2**   
+**Vibe coded with GPT 5.2**  
 The gradient background gives it away 😄
 
-**Reasoning**   
+**Reasoning**  
 reasoning section is exposed by sending "medium" effort and reasoning to OpenRouter. This however forces gpt-image to reason and return an image slower than expected (based on experience)
 
 **Resolution**  
@@ -26,6 +27,5 @@ No resolution parameter exposed. Assume model defaults such as 1K and so likely 
 - message remove/edit/re-runs not functional end to end
 - only nano banana 2.5, 3, and gpt5-image have been tested
 - Abort controller not thoroughly tests
-
 
 Use at your own risk. Donated by @gsynuh

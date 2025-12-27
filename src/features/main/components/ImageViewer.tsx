@@ -105,6 +105,12 @@ export default function ImageViewer({
     return Math.min(maxW / natural.width, maxH / natural.height);
   }, [natural]);
 
+  // Calculate minimum zoom: use fitScale if smaller than 0.5, otherwise use 0.5 as minimum
+  const minZoom = useMemo(() => {
+    if (!fitScale) return 0.5;
+    return Math.min(fitScale, 0.5);
+  }, [fitScale]);
+
   // Set initial zoom to fit when natural dimensions are first available
   useEffect(() => {
     if (natural && containerRef.current && zoom === 1) {
@@ -175,7 +181,7 @@ export default function ImageViewer({
 
     const delta = event.deltaY;
     const zoomFactor = delta > 0 ? 0.9 : 1.1;
-    const newZoom = clamp(zoom * zoomFactor, 0.5, 5);
+    const newZoom = clamp(zoom * zoomFactor, minZoom, 5);
 
     // Get mouse position relative to container
     const rect = containerRef.current.getBoundingClientRect();
@@ -432,7 +438,7 @@ export default function ImageViewer({
               </div>
               <Slider
                 value={[zoom]}
-                min={0.5}
+                min={minZoom}
                 max={5}
                 step={0.01}
                 onValueChange={(value) => setZoom(value[0] ?? 1)}

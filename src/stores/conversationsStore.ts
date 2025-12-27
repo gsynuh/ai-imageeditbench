@@ -174,7 +174,10 @@ async function buildOpenRouterMessages(
       const url = await blobToDataUrl(asset.blob);
       parts.push({ type: "image_url", image_url: { url } });
     }
-    output.push({ role: message.role, content: parts });
+    // Convert system messages with images to user messages
+    // Many providers (e.g., OpenAI) don't support images in system messages
+    const role = message.role === "system" ? "user" : message.role;
+    output.push({ role, content: parts });
   }
 
   // If no messages yet but we have a system message, add it
