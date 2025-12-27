@@ -1,0 +1,11 @@
+@mixin panel-surface {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+}
+
+@mixin card-grid($min) {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax($min, 1fr));
+}

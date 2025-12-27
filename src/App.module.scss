@@ -1,0 +1,106 @@
+@use "./styles/mixins.scss" as mixins;
+
+.appShell {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 32px;
+  max-width: 1480px;
+  margin: 0 auto;
+}
+
+.appHeader {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px 18px;
+}
+
+.headerLeft {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px 18px;
+}
+
+.headerCenter {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-width: 120px;
+}
+
+.headerRight {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.appKicker {
+  text-transform: uppercase;
+  letter-spacing: 0.24em;
+  font-size: 0.7rem;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+
+.appTitle {
+  font-size: clamp(2rem, 3vw, 3rem);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.appSubtitle {
+  margin-top: 12px;
+  color: var(--muted);
+  max-width: 640px;
+}
+
+.headerStatus {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.statusRow {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px 14px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.statusChip {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 6px 10px;
+  border-radius: 999px;
+}
+
+.viewTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.viewContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+@media (max-width: 720px) {
+  .appShell {
+    padding: 20px;
+  }
+
+  .headerStatus {
+    align-items: flex-start;
+  }
+}

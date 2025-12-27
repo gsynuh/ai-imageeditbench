@@ -1,0 +1,420 @@
+@use "../../styles/mixins.scss" as mixins;
+
+.mainView {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.headerTitle {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.columnsSection {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.columnControls {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+
+.columnControlGroup {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+  justify-content: center;
+  align-items: center;
+  min-width: 280px;
+}
+
+.controlSeparator {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.columnsGrid {
+  display: flex;
+  gap: 14px;
+  padding-bottom: 6px;
+}
+
+.columnCard {
+  @include mixins.panel-surface;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 340px;
+  min-width: 280px;
+  flex: 1;
+}
+
+.columnHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.columnHeader h3 {
+  margin: 0 0 4px 0;
+}
+
+.columnHeader p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.messageStack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+  padding-right: 2px;
+}
+
+.messageCard {
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.messageMeta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.messageSystem {
+  border-style: dashed;
+  color: var(--muted);
+}
+
+.messageUser {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 199, 102, 0.14),
+    rgba(255, 199, 102, 0.06)
+  );
+}
+
+.messageAssistant {
+  background: linear-gradient(
+    135deg,
+    rgba(106, 203, 255, 0.13),
+    rgba(106, 203, 255, 0.05)
+  );
+}
+
+.messageTool {
+  background: rgba(255, 255, 255, 0.06);
+  border-style: dashed;
+}
+
+.messageImage {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.messageActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.streamingIndicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.messageTiming {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.streamingDots {
+  display: inline-flex;
+  gap: 2px;
+  align-items: baseline;
+
+  span {
+    display: inline-block;
+    animation: streamingDot 1.4s infinite ease-in-out;
+
+    &:nth-child(1) {
+      animation-delay: 0s;
+    }
+
+    &:nth-child(2) {
+      animation-delay: 0.2s;
+    }
+
+    &:nth-child(3) {
+      animation-delay: 0.4s;
+    }
+  }
+}
+
+@keyframes streamingDot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+.reasoningBlock {
+  padding: 12px 15px;
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  color: var(--muted-foreground) !important;
+}
+
+.reasoningLabel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.columnFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.inputDock {
+  background: linear-gradient(
+    135deg,
+    rgba(21, 23, 29, 0.95),
+    rgba(13, 14, 18, 0.95)
+  );
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 18px;
+}
+
+.inputGrid {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 14px;
+}
+
+.inputTopRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.inputBlockNarrow {
+  flex-shrink: 0;
+
+  :global(.select-popover-trigger) {
+    min-width: 90px;
+    max-width: 120px;
+  }
+}
+
+.addImageButton {
+  white-space: nowrap;
+
+  @media (max-width: 640px) {
+    span {
+      display: none;
+    }
+  }
+}
+
+.inputSpacer {
+  flex: 1;
+}
+
+.inputBottomRow {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.inputBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.inputBlockWide {
+  width: 100%;
+}
+
+.inputActions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+// Image previews in assistant messages (full width, vertical stack)
+.imagePreview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.imagePreview button {
+  width: 100%;
+  padding: 0;
+  background: transparent;
+  border: none;
+}
+
+.imagePreview img {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  display: block;
+}
+
+// Image previews in input bar (thumbnails, horizontal row)
+.inputImagePreviews {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.inputImageThumbnail {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  flex-shrink: 0;
+}
+
+.inputImageThumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.inputImageRemove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--danger, #ef4444);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition:
+    background 0.2s,
+    transform 0.1s;
+
+  &:hover {
+    background: var(--danger, #dc2626);
+    transform: scale(1.1);
+  }
+
+  &:active {
+    transform: scale(0.95);
+  }
+}
+
+.imageEditor {
+  @include mixins.panel-surface;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.imageEditorLayout {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: 1fr 260px;
+  align-items: start;
+}
+
+.imageEditorSidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.imageEditorControl {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.imageEditorHint {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.imageEditorCanvas {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  display: block;
+}
+
+.imageEditorActions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+@media (max-width: 720px) {
+  .inputTopRow {
+    grid-template-columns: 1fr;
+  }
+
+  .imageEditorLayout {
+    grid-template-columns: 1fr;
+  }
+}

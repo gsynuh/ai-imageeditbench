@@ -1,0 +1,70 @@
+@use "../../styles/mixins.scss" as mixins;
+
+.statsView {
+  @include mixins.card-grid(260px);
+}
+
+.panel {
+  @include mixins.panel-surface;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.panelWide {
+  grid-column: span 2;
+}
+
+.statList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.statRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.historyList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.historyItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 12px;
+  border-radius: 12px;
+}
+
+.historyItem p {
+  margin: 4px 0 0 0;
+  color: var(--muted);
+}
+
+.historyItemMuted {
+  color: var(--muted);
+  border-style: dashed;
+}
+
+.historyControls {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.historySearch {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}

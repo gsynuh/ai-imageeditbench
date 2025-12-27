@@ -1,0 +1,247 @@
+import { atom } from "nanostores";
+import type { DefaultEntry, DefaultsState } from "../types/db";
+import { getDefaults, saveDefaults } from "../lib/idb";
+import { createId } from "../lib/utils";
+
+const COMMON_DEFAULT_ID = "common-default";
+
+const defaultDefaultsState: DefaultsState = {
+  entries: [
+    {
+      id: COMMON_DEFAULT_ID,
+      name: "Common Default",
+      modelFilter: "", // Empty filter applies to all models
+      systemMessage: undefined,
+      systemMessageSet: false, // Not set by default
+      streamReasoning: true,
+      streamReasoningSet: false, // Not set by default
+      reasoningEffort: "medium",
+      reasoningEffortSet: false, // Not set by default
+      temperature: undefined,
+      temperatureSet: false, // Not set by default
+      keepOnlyLastImage: false,
+      keepOnlyLastImageSet: false,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    },
+    {
+      id: "nano-banana-3-one-image",
+      name: "Nano Banana 3 (keep one image)",
+      modelFilter: "nano[-_ ]?banana[-_ ]?3",
+      systemMessage: undefined,
+      systemMessageSet: false,
+      streamReasoning: true,
+      streamReasoningSet: false,
+      reasoningEffort: "medium",
+      reasoningEffortSet: false,
+      temperature: undefined,
+      temperatureSet: false,
+      keepOnlyLastImage: true,
+      keepOnlyLastImageSet: true,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    },
+  ],
+  commonDefaultId: COMMON_DEFAULT_ID,
+};
+
+export const $defaults = atom<DefaultsState>(defaultDefaultsState);
+
+export async function loadDefaults() {
+  const stored = await getDefaults();
+  if (stored) {
+    // Migrate all entries to include new fields if missing
+    let needsSave = false;
+    stored.entries.forEach((entry) => {
+      const raw = entry as unknown as Partial<DefaultEntry>;
+      if (raw.reasoningEffort === undefined) {
+        raw.reasoningEffort = "medium";
+        needsSave = true;
+      }
+      if (raw.reasoningEffortSet === undefined) {
+        raw.reasoningEffortSet = false;
+        needsSave = true;
+      }
+      if (raw.temperatureSet === undefined) {
+        raw.temperatureSet = false;
+        needsSave = true;
+      }
+      if (raw.systemMessageSet === undefined) {
+        raw.systemMessageSet = Boolean(raw.systemMessage);
+        needsSave = true;
+      }
+      if (raw.streamReasoningSet === undefined) {
+        raw.streamReasoningSet = false;
+        needsSave = true;
+      }
+      if (raw.keepOnlyLastImage === undefined) {
+        raw.keepOnlyLastImage = false;
+        needsSave = true;
+      }
+      if (raw.keepOnlyLastImageSet === undefined) {
+        raw.keepOnlyLastImageSet = false;
+        needsSave = true;
+      }
+    });
+
+    // Ensure common default exists
+    const hasCommonDefault = stored.entries.some(
+      (e) => e.id === COMMON_DEFAULT_ID,
+    );
+    if (!hasCommonDefault) {
+      stored.entries.push({
+        id: COMMON_DEFAULT_ID,
+        name: "Common Default",
+        modelFilter: "",
+        systemMessage: undefined,
+        systemMessageSet: false,
+        streamReasoning: true,
+        streamReasoningSet: false,
+        reasoningEffort: "medium",
+        reasoningEffortSet: false,
+        temperature: undefined,
+        temperatureSet: false,
+        keepOnlyLastImage: false,
+        keepOnlyLastImageSet: false,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      needsSave = true;
+    }
+
+    const hasNanoBanana3 = stored.entries.some(
+      (e) => e.id === "nano-banana-3-one-image",
+    );
+    if (!hasNanoBanana3) {
+      stored.entries.push({
+        id: "nano-banana-3-one-image",
+        name: "Nano Banana 3 (keep one image)",
+        modelFilter: "nano[-_ ]?banana[-_ ]?3",
+        systemMessage: undefined,
+        systemMessageSet: false,
+        streamReasoning: true,
+        streamReasoningSet: false,
+        reasoningEffort: "medium",
+        reasoningEffortSet: false,
+        temperature: undefined,
+        temperatureSet: false,
+        keepOnlyLastImage: true,
+        keepOnlyLastImageSet: true,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      needsSave = true;
+    }
+
+    if (needsSave) {
+      await saveDefaults(stored);
+    }
+    $defaults.set(stored);
+  } else {
+    await saveDefaults(defaultDefaultsState);
+    $defaults.set(defaultDefaultsState);
+  }
+}
+
+export async function createDefault(
+  entry: Omit<DefaultEntry, "id" | "createdAt" | "updatedAt">,
+) {
+  const defaults = $defaults.get();
+  const newEntry: DefaultEntry = {
+    ...entry,
+    id: createId("default"),
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  const updated: DefaultsState = {
+    ...defaults,
+    entries: [...defaults.entries, newEntry],
+  };
+  $defaults.set(updated);
+  await saveDefaults(updated);
+}
+
+export async function updateDefault(
+  id: string,
+  updates: Partial<Omit<DefaultEntry, "id" | "createdAt">>,
+) {
+  const defaults = $defaults.get();
+  const isCommonDefault = id === COMMON_DEFAULT_ID;
+  const updated: DefaultsState = {
+    ...defaults,
+    entries: defaults.entries.map((entry) => {
+      if (entry.id !== id) return entry;
+      // Common default: allow updating systemMessage, streamReasoning, reasoningEffort, and temperature
+      if (isCommonDefault) {
+        return {
+          ...entry,
+          systemMessage: updates.systemMessage ?? entry.systemMessage,
+          systemMessageSet: updates.systemMessageSet ?? entry.systemMessageSet,
+          streamReasoning: updates.streamReasoning ?? entry.streamReasoning,
+          streamReasoningSet:
+            updates.streamReasoningSet ?? entry.streamReasoningSet,
+          reasoningEffort: updates.reasoningEffort ?? entry.reasoningEffort,
+          reasoningEffortSet:
+            updates.reasoningEffortSet ?? entry.reasoningEffortSet,
+          temperature: updates.temperature ?? entry.temperature,
+          temperatureSet: updates.temperatureSet ?? entry.temperatureSet,
+          keepOnlyLastImage:
+            updates.keepOnlyLastImage ?? entry.keepOnlyLastImage,
+          keepOnlyLastImageSet:
+            updates.keepOnlyLastImageSet ?? entry.keepOnlyLastImageSet,
+          updatedAt: Date.now(),
+        };
+      }
+      // Regular entries: allow all updates except modelFilter if it's empty
+      return {
+        ...entry,
+        ...updates,
+        updatedAt: Date.now(),
+      };
+    }),
+  };
+  $defaults.set(updated);
+  await saveDefaults(updated);
+}
+
+export async function deleteDefault(id: string) {
+  if (id === COMMON_DEFAULT_ID) {
+    throw new Error("Cannot delete common default");
+  }
+  const defaults = $defaults.get();
+  const updated: DefaultsState = {
+    ...defaults,
+    entries: defaults.entries.filter((e) => e.id !== id),
+  };
+  $defaults.set(updated);
+  await saveDefaults(updated);
+}
+
+export function getMatchingDefault(modelId: string): DefaultEntry | null {
+  const defaults = $defaults.get();
+  // Find entries with matching regex filters
+  const matchingEntries = defaults.entries.filter((entry) => {
+    if (!entry.modelFilter) {
+      // Empty filter matches all (common default)
+      return true;
+    }
+    try {
+      const regex = new RegExp(entry.modelFilter);
+      return regex.test(modelId);
+    } catch {
+      // Invalid regex, skip
+      return false;
+    }
+  });
+
+  if (matchingEntries.length === 0) return null;
+
+  // Prioritize: non-empty filters first (more specific), then by creation date
+  matchingEntries.sort((a, b) => {
+    if (a.modelFilter && !b.modelFilter) return -1;
+    if (!a.modelFilter && b.modelFilter) return 1;
+    return a.createdAt - b.createdAt;
+  });
+
+  return matchingEntries[0];
+}
