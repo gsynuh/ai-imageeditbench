@@ -274,6 +274,15 @@ export async function deleteDefault(id: string) {
 }
 
 export function getMatchingDefault(modelId: string): DefaultEntry | null {
+  const merged = getMergedDefaults(modelId);
+  return merged;
+}
+
+/**
+ * Merges all matching defaults for a model, with common default as base
+ * and more specific defaults overriding only fields that are explicitly set.
+ */
+export function getMergedDefaults(modelId: string): DefaultEntry | null {
   const defaults = $defaults.get();
   // Find entries with matching regex filters
   const matchingEntries = defaults.entries.filter((entry) => {
@@ -293,12 +302,81 @@ export function getMatchingDefault(modelId: string): DefaultEntry | null {
 
   if (matchingEntries.length === 0) return null;
 
-  // Prioritize: non-empty filters first (more specific), then by creation date
-  matchingEntries.sort((a, b) => {
-    if (a.modelFilter && !b.modelFilter) return -1;
-    if (!a.modelFilter && b.modelFilter) return 1;
-    return a.createdAt - b.createdAt;
-  });
+  // Separate common default from specific defaults
+  const commonDefault = matchingEntries.find((e) => !e.modelFilter);
+  const specificDefaults = matchingEntries
+    .filter((e) => e.modelFilter)
+    .sort((a, b) => a.createdAt - b.createdAt); // Sort by creation date for consistent ordering
 
-  return matchingEntries[0];
+  // Start with common default as base, or create empty entry if no common default
+  const merged: DefaultEntry = commonDefault
+    ? { ...commonDefault }
+    : {
+        id: "",
+        name: "",
+        modelFilter: "",
+        systemMessageSet: false,
+        streamReasoningSet: false,
+        reasoningEffortSet: false,
+        temperatureSet: false,
+        keepOnlyLastImageSet: false,
+        outputFormatSet: false,
+        imageAspectRatioSet: false,
+        imageSizeSet: false,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+
+  // Apply specific defaults on top, only overriding fields that are explicitly set
+  for (const specific of specificDefaults) {
+    // System message
+    if (specific.systemMessageSet) {
+      merged.systemMessage = specific.systemMessage;
+      merged.systemMessageSet = true;
+    }
+
+    // Stream reasoning
+    if (specific.streamReasoningSet) {
+      merged.streamReasoning = specific.streamReasoning;
+      merged.streamReasoningSet = true;
+    }
+
+    // Reasoning effort
+    if (specific.reasoningEffortSet) {
+      merged.reasoningEffort = specific.reasoningEffort;
+      merged.reasoningEffortSet = true;
+    }
+
+    // Temperature
+    if (specific.temperatureSet) {
+      merged.temperature = specific.temperature;
+      merged.temperatureSet = true;
+    }
+
+    // Keep only last image
+    if (specific.keepOnlyLastImageSet) {
+      merged.keepOnlyLastImage = specific.keepOnlyLastImage;
+      merged.keepOnlyLastImageSet = true;
+    }
+
+    // Output format
+    if (specific.outputFormatSet) {
+      merged.outputFormat = specific.outputFormat;
+      merged.outputFormatSet = true;
+    }
+
+    // Image aspect ratio
+    if (specific.imageAspectRatioSet) {
+      merged.imageAspectRatio = specific.imageAspectRatio;
+      merged.imageAspectRatioSet = true;
+    }
+
+    // Image size
+    if (specific.imageSizeSet) {
+      merged.imageSize = specific.imageSize;
+      merged.imageSizeSet = true;
+    }
+  }
+
+  return merged;
 }

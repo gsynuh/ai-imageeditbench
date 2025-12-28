@@ -24,7 +24,7 @@ function getSessionViewHeaderActions(): HeaderAction[] {
   return [
     {
       key: "clear-session",
-      label: "Clear Session",
+      label: "New Session",
       icon: RotateCcw,
       onClick: resetSession,
       variant: "secondary",

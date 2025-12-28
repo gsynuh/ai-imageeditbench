@@ -40,7 +40,7 @@ import { calculateModelCostUsd } from "../lib/cost";
 import { $settings, setSelectedModels } from "./settingsStore";
 import { $activeSessionId, setActiveSession } from "./appStore";
 import { $models } from "./modelsStore";
-import { getModelProvider, inferModelModalities } from "../lib/modelMeta";
+import { inferModelModalities } from "../lib/modelMeta";
 import { getMatchingDefault } from "./defaultsStore";
 import { $uiState, resetHistoryPagination, setHistoryHasMore } from "./uiStore";
 import { showVerificationDialog } from "./verificationStore";
@@ -765,7 +765,7 @@ async function requestCompletionForModel(
   // OpenRouter currently documents image_config for Gemini image-gen models.
   const overrideImageConfig = normalizedOverrides.image_config;
   const isGeminiImageConfigModel =
-    getModelProvider(modelId) === "google" && modalities.includes("image");
+    modelId.includes("google") && modalities.includes("image");
   if (overrideImageConfig && typeof overrideImageConfig === "object") {
     payload.image_config = overrideImageConfig;
   } else if (isGeminiImageConfigModel) {
@@ -811,11 +811,25 @@ async function requestCompletionForModel(
           reasoning: payload.reasoning,
           temperature: payload.temperature,
           max_tokens: payload.max_tokens,
+          image_config: payload.image_config,
         },
         null,
         2,
       ),
     );
+    if (isGeminiImageConfigModel) {
+      console.debug(
+        `[Session] Gemini Image config check for ${modelId}:`,
+        {
+          isGeminiImageConfigModel,
+          imageAspectRatioSet,
+          imageAspectRatio,
+          imageSizeSet,
+          imageSize,
+          modalities,
+        },
+      );
+    }
   }
   let usage: {
     prompt_tokens?: number;
