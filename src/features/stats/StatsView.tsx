@@ -1,8 +1,8 @@
 import { useMemo, useEffect, useState } from "react";
 import { useStore } from "@nanostores/react";
 import styles from "./StatsView.module.scss";
-import { $activeSession, $history } from "../../stores/sessionsStore";
-import { $models } from "../../stores/modelsStore";
+import { $activeSession, $history } from "@stores/sessionsStore";
+import { $models } from "@stores/modelsStore";
 import { getAllStats } from "../../lib/idb";
 import type { SessionStats } from "../../types/db";
 

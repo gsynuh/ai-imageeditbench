@@ -1,13 +1,13 @@
 import { useStore } from "@nanostores/react";
 import type { Message } from "../../../types/db";
 import styles from "../SessionView.module.scss";
-import { Button } from "../../../components/ui/button";
+import { Button } from "@components/ui/button";
 import { formatDuration, formatTimestamp } from "../../../lib/utils";
 import {
   $uiState,
   toggleCollapsedBlock,
   toggleHiddenMessage,
-} from "../../../stores/uiStore";
+} from "@stores/uiStore";
 import { Trash2, Eye, EyeOff, ChevronDown, ChevronUp } from "lucide-react";
 
 export default function MessageCard({

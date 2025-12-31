@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { Button } from "../../../components/ui/button";
+import { Button } from "@components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from "../../../components/ui/dialog";
-import { Slider } from "../../../components/ui/slider";
+} from "@components/ui/dialog";
+import { Slider } from "@components/ui/slider";
 import styles from "../SessionView.module.scss";
 import {
   clamp,

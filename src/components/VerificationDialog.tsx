@@ -9,7 +9,7 @@ import {
 import {
   $verificationDialog,
   closeVerificationDialog,
-} from "../stores/verificationStore";
+} from "@stores/verificationStore";
 import { Button } from "./ui/button";
 
 export default function VerificationDialog() {

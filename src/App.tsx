@@ -1,25 +1,26 @@
 import { useEffect } from "react";
 import { useStore } from "@nanostores/react";
 import styles from "./App.module.scss";
-import { Button } from "./components/ui/button";
-import { ErrorBoundary } from "./components/ErrorBoundary";
-import { $activeView, setActiveView } from "./stores/appStore";
+import { Button } from "@components/ui/button";
+import { ErrorBoundary } from "@components/ErrorBoundary";
+import { $activeView, setActiveView } from "@stores/appStore";
 import {
   ensureSessionLoaded,
   loadHistory,
   syncSessionModels,
-} from "./stores/sessionsStore";
-import { $settings, loadSettings } from "./stores/settingsStore";
-import { loadStoredModels } from "./stores/modelsStore";
-import { loadDefaults } from "./stores/defaultsStore";
-import { pruneSoloModels } from "./stores/uiStore";
+} from "@stores/sessionsStore";
+import { $settings, loadSettings } from "@stores/settingsStore";
+import { loadStoredModels } from "@stores/modelsStore";
+import { loadDefaults } from "@stores/defaultsStore";
+import { pruneSoloModels } from "@stores/uiStore";
 import SessionView from "./features/session/SessionView";
 import ModelsView from "./features/models/ModelsView";
 import StatsView from "./features/stats/StatsView";
 import DefaultsView from "./features/defaults/DefaultsView";
 import HistoryView from "./features/history/HistoryView";
-import { $headerCenter, $headerRightActions } from "./stores/headerStore";
-import VerificationDialog from "./components/VerificationDialog";
+import { $headerCenter, $headerRightActions } from "@stores/headerStore";
+import VerificationDialog from "@components/VerificationDialog";
+import Notifications from "@components/Notifications";
 
 function App() {
   const activeView = useStore($activeView);
@@ -135,6 +136,7 @@ function App() {
         )}
       </section>
       <VerificationDialog />
+      <Notifications />
     </div>
   );
 }

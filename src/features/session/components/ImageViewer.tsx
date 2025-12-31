@@ -4,9 +4,9 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-} from "../../../components/ui/dialog";
-import { Button } from "../../../components/ui/button";
-import { Slider } from "../../../components/ui/slider";
+} from "@components/ui/dialog";
+import { Button } from "@components/ui/button";
+import { Slider } from "@components/ui/slider";
 import { getImage } from "../../../lib/idb";
 import { clamp } from "../../../lib/image";
 import { Download } from "lucide-react";

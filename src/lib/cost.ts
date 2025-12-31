@@ -21,23 +21,28 @@ export function calculateModelCostUsd({
   promptTokens: number;
   completionTokens: number;
   outputImages: number;
-}): number {
-  if (!pricing) return 0;
+}): number | null {
+  if (!pricing) return null;
 
-  // OpenRouter returns pricing as strings (e.g., "0.0000003"), convert to numbers
-  const promptPricePerToken = toFiniteNumber(pricing.prompt) ?? 0;
-  const completionPricePerToken = toFiniteNumber(pricing.completion) ?? 0;
-  const requestPrice = toFiniteNumber(pricing.request) ?? 0;
-  const imagePrice = toFiniteNumber(pricing.image) ?? 0;
+  const promptPricePerToken = toFiniteNumber(pricing.prompt);
+  const completionPricePerToken = toFiniteNumber(pricing.completion);
+  const requestPrice = toFiniteNumber(pricing.request);
+  const imagePrice = toFiniteNumber(pricing.image);
 
-  // OpenRouter stores pricing as per-token values (very small decimals).
-  // Multiply directly by token count to get cost.
-  // Example: 0.0000003 per token * 1M tokens = $0.30
+  if (
+    promptPricePerToken === null ||
+    completionPricePerToken === null ||
+    requestPrice === null ||
+    imagePrice === null
+  ) {
+    return null;
+  }
+
   const promptCost = promptTokens * promptPricePerToken;
   const completionCost = completionTokens * completionPricePerToken;
 
   const imageCost = outputImages * imagePrice;
   const total = promptCost + completionCost + requestPrice + imageCost;
 
-  return Number.isFinite(total) ? total : 0;
+  return Number.isFinite(total) ? total : null;
 }

@@ -2,10 +2,10 @@ import type { ClipboardEvent, DragEvent } from "react";
 import { useMemo, useRef, useState } from "react";
 import { useStore } from "@nanostores/react";
 import styles from "../SessionView.module.scss";
-import { Button } from "../../../components/ui/button";
-import { Input } from "../../../components/ui/input";
-import { Textarea } from "../../../components/ui/textarea";
-import { SelectPopover } from "../../../components/ui/select-popover";
+import { Button } from "@components/ui/button";
+import { Input } from "@components/ui/input";
+import { Textarea } from "@components/ui/textarea";
+import { SelectPopover } from "@components/ui/select-popover";
 import {
   $inputState,
   addPendingImage,
@@ -14,12 +14,9 @@ import {
   setInputRole,
   setInputText,
   setMultiplier,
-} from "../../../stores/inputStore";
-import { $settings } from "../../../stores/settingsStore";
-import {
-  pushMessageToAll,
-  sendMessageToAll,
-} from "../../../stores/sessionsStore";
+} from "@stores/inputStore";
+import { $settings } from "@stores/settingsStore";
+import { pushMessageToAll, sendMessageToAll } from "@stores/sessionsStore";
 import ImageEditor from "./ImageEditor";
 import { ImagePlus, Send, Upload, X } from "lucide-react";
 
@@ -31,17 +28,19 @@ export default function InputDock() {
 
   const canSend = settings.selectedModelIds.length > 0 && settings.apiKey;
 
-  const handleFiles = (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    const file = files[0];
-    // Be more lenient: check file type OR extension
-    // Some files may have incorrect or missing MIME types
+  const isImageFile = (file: File) => {
     const hasImageType = file.type.startsWith("image/");
     const hasImageExtension =
       /\.(jpg|jpeg|png|gif|webp|bmp|svg|avif|heic|heif|ico|tif|tiff)$/i.test(
         file.name,
       );
-    if (!hasImageType && !hasImageExtension) {
+    return hasImageType || hasImageExtension;
+  };
+
+  const handleFiles = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    if (!isImageFile(file)) {
       if (import.meta.env.DEV) {
         console.warn(
           "[InputDock] File doesn't appear to be an image:",
@@ -60,23 +59,24 @@ export default function InputDock() {
   };
 
   const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
-    const items = event.clipboardData.items;
-    for (const item of items) {
-      // Accept if it's an image type OR if it's a file with image extension
-      if (
-        item.type.startsWith("image/") ||
-        (item.kind === "file" &&
-          /\.(jpg|jpeg|png|gif|webp|bmp|svg|avif|heic|heif|ico|tif|tiff)$/i.test(
-            item.type || "",
-          ))
-      ) {
-        const file = item.getAsFile();
-        if (file) {
-          setEditorFile(file);
-          break;
-        }
+    const clipboardData = event.clipboardData;
+
+    const fileFromClipboard = (() => {
+      for (const file of Array.from(clipboardData.files)) {
+        if (isImageFile(file)) return file;
       }
-    }
+      for (const item of Array.from(clipboardData.items)) {
+        if (item.kind !== "file") continue;
+        const file = item.getAsFile();
+        if (file && isImageFile(file)) return file;
+      }
+      return null;
+    })();
+
+    if (!fileFromClipboard) return;
+
+    event.preventDefault();
+    setEditorFile(fileFromClipboard);
   };
 
   const handleConfirmImage = (blob: Blob, size: number) => {

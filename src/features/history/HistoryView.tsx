@@ -1,8 +1,8 @@
 import { useMemo, useState, useRef } from "react";
 import { useStore } from "@nanostores/react";
 import styles from "./HistoryView.module.scss";
-import { Button } from "../../components/ui/button";
-import { Input } from "../../components/ui/input";
+import { Button } from "@components/ui/button";
+import { Input } from "@components/ui/input";
 import {
   $activeSession,
   $history,
@@ -11,18 +11,18 @@ import {
   loadSession,
   loadMoreHistory,
   updateSessionTitle,
-} from "../../stores/sessionsStore";
+} from "@stores/sessionsStore";
 import {
   $uiState,
   advanceHistoryOffset,
   resetHistoryPagination,
   setHistoryHasMore,
   setHistorySearch,
-} from "../../stores/uiStore";
+} from "@stores/uiStore";
 import { formatDateTime } from "../../lib/utils";
 import { Download, Trash2, Upload, Edit2, Check, X } from "lucide-react";
-import { setActiveView } from "../../stores/appStore";
-import { $models } from "../../stores/modelsStore";
+import { setActiveView } from "@stores/appStore";
+import { $models } from "@stores/modelsStore";
 import type { Session } from "../../types/db";
 
 function HistoryItem({

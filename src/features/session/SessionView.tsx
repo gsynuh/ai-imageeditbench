@@ -1,24 +1,24 @@
 import { useEffect, useState, useRef } from "react";
 import { useStore } from "@nanostores/react";
 import styles from "./SessionView.module.scss";
-import { ErrorBoundary } from "../../components/ErrorBoundary";
-import { Button } from "../../components/ui/button";
-import { Input } from "../../components/ui/input";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   $activeSession,
   resetSession,
   updateSessionTitle,
-} from "../../stores/sessionsStore";
-import { $models } from "../../stores/modelsStore";
-import { $settings, moveSelectedModel } from "../../stores/settingsStore";
-import ModelColumn from "./components/ModelColumn";
-import InputDock from "./components/InputDock";
+} from "@stores/sessionsStore";
+import { $models } from "@stores/modelsStore";
+import { $settings, moveSelectedModel } from "@stores/settingsStore";
+import ModelColumn from "@features/session/components/ModelColumn";
+import InputDock from "@features/session/components/InputDock";
 import { RotateCcw, ArrowLeft, ArrowRight, Dot } from "lucide-react";
 import {
   setHeaderCenter,
   setHeaderRightActions,
   type HeaderAction,
-} from "../../stores/headerStore";
+} from "@stores/headerStore";
 
 function getSessionViewHeaderActions(): HeaderAction[] {
   return [

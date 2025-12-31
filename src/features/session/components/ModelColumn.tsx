@@ -2,18 +2,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "@nanostores/react";
 import type { Message, SessionStats } from "../../../types/db";
 import styles from "../SessionView.module.scss";
-import { Button } from "../../../components/ui/button";
+import { Button } from "@components/ui/button";
 import {
   abortStream,
   removeMessageFromModel,
   rerunLastAssistantMessage,
-} from "../../../stores/sessionsStore";
+} from "@stores/sessionsStore";
 import MessageCard from "./MessageCard";
 import { Ban, Circle, CircleDot, RotateCcw } from "lucide-react";
 import { getImage } from "../../../lib/idb";
-import { ScrollArea } from "../../../components/ui/scroll-area";
+import { ScrollArea } from "@components/ui/scroll-area";
 import ImageViewer from "./ImageViewer";
-import { $uiState, toggleSoloModel } from "../../../stores/uiStore";
+import { $uiState, toggleSoloModel } from "@stores/uiStore";
 
 export default function ModelColumn({
   modelId,

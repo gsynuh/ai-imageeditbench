@@ -7,7 +7,6 @@ import type {
 import {
   deleteSession as deleteSessionDb,
   deleteMessage,
-  deleteMessagesAfter,
   getSession,
   getImage,
   getMessages,
@@ -16,7 +15,9 @@ import {
   saveSession,
   saveImage,
   saveMessage,
+  saveMessages,
   saveStats,
+  cleanupOrphanedImages,
 } from "../lib/idb";
 import { createId, debounce } from "../lib/utils";
 import type { OpenRouterAttachment } from "../lib/openrouter";
@@ -46,6 +47,7 @@ import { $uiState, resetHistoryPagination, setHistoryHasMore } from "./uiStore";
 import { showVerificationDialog } from "./verificationStore";
 import type { InputState } from "./inputStore";
 import type { ImageAsset } from "../types/db";
+import { addNotification } from "./notificationsStore";
 
 export interface ActiveSessionState {
   session: Session | null;
@@ -68,6 +70,11 @@ export const $history = atom<Session[]>([]);
 // Map key format: `${modelId}-${runIndex}` for per-run abort controllers
 const streamControllers = new Map<string, AbortController>();
 const deletedSessionIds = new Set<string>();
+const costWarningKeys = new Set<string>();
+
+const cleanupImagesDebounced = debounce(() => {
+  void cleanupOrphanedImages();
+}, 1500);
 
 function upsertHistorySession(session: Session) {
   if (!session.hasExecuted) return;
@@ -117,6 +124,47 @@ async function ensureStatsForModel(sessionId: string, modelId: string) {
     ...current,
     statsByModel: { ...current.statsByModel, [modelId]: stats },
   });
+}
+
+function resolveCostUsd({
+  sessionId,
+  modelId,
+  usageCost,
+  promptTokens,
+  completionTokens,
+  outputImages,
+}: {
+  sessionId: string;
+  modelId: string;
+  usageCost: unknown;
+  promptTokens: number;
+  completionTokens: number;
+  outputImages: number;
+}): number | null {
+  if (typeof usageCost === "number" && Number.isFinite(usageCost))
+    return usageCost;
+
+  if (!promptTokens && !completionTokens) return null;
+
+  const models = $models.get();
+  const modelInfo = models.find((m) => m.id === modelId);
+  const calculated = calculateModelCostUsd({
+    pricing: modelInfo?.pricing,
+    promptTokens,
+    completionTokens,
+    outputImages,
+  });
+  if (calculated === null) {
+    const key = `${sessionId}:${modelId}`;
+    if (!costWarningKeys.has(key)) {
+      costWarningKeys.add(key);
+      addNotification({
+        type: "warning",
+        message: `Cost unavailable for ${modelId} (missing/invalid pricing).`,
+      });
+    }
+  }
+  return calculated;
 }
 
 async function buildOpenRouterMessages(
@@ -240,7 +288,7 @@ function updateSessionTotals(
     (acc, stat) => {
       acc.tokens +=
         (toNumber(stat.inputTokens) ?? 0) + (toNumber(stat.outputTokens) ?? 0);
-      acc.cost += toNumber(stat.totalCost) ?? 0;
+      acc.cost += stat.totalCost ?? 0;
       return acc;
     },
     { tokens: 0, cost: 0 },
@@ -390,6 +438,7 @@ export async function loadMoreHistory(offset: number) {
 export async function deleteSession(id: string) {
   deletedSessionIds.add(id);
   await deleteSessionDb(id);
+  cleanupImagesDebounced();
   $history.set($history.get().filter((item) => item.id !== id));
   if ($activeSessionId.get() === id) {
     await initializeSession();
@@ -818,17 +867,14 @@ async function requestCompletionForModel(
       ),
     );
     if (isGeminiImageConfigModel) {
-      console.debug(
-        `[Session] Gemini Image config check for ${modelId}:`,
-        {
-          isGeminiImageConfigModel,
-          imageAspectRatioSet,
-          imageAspectRatio,
-          imageSizeSet,
-          imageSize,
-          modalities,
-        },
-      );
+      console.debug(`[Session] Gemini Image config check for ${modelId}:`, {
+        isGeminiImageConfigModel,
+        imageAspectRatioSet,
+        imageAspectRatio,
+        imageSizeSet,
+        imageSize,
+        modalities,
+      });
     }
   }
   let usage: {
@@ -900,26 +946,22 @@ async function requestCompletionForModel(
       totalCost: 0,
     };
 
-    const promptTokens = toNumber(usage.prompt_tokens) ?? 0;
-    const completionTokens = toNumber(usage.completion_tokens) ?? 0;
-    let calculatedCost = toNumber(usage.cost) ?? 0;
-
-    if (!calculatedCost && (promptTokens || completionTokens)) {
-      const models = $models.get();
-      const modelInfo = models.find((m) => m.id === modelId);
-      calculatedCost = calculateModelCostUsd({
-        pricing: modelInfo?.pricing,
-        promptTokens,
-        completionTokens,
-        outputImages: assistantMessage.imageIds.length,
-      });
-    }
+    const promptTokens = usage.prompt_tokens ?? 0;
+    const completionTokens = usage.completion_tokens ?? 0;
+    const calculatedCost = resolveCostUsd({
+      sessionId: session.id,
+      modelId,
+      usageCost: usage.cost,
+      promptTokens,
+      completionTokens,
+      outputImages: assistantMessage.imageIds.length,
+    });
 
     const nextStats: SessionStats = {
       ...stats,
       inputTokens: (toNumber(stats.inputTokens) ?? 0) + promptTokens,
-      outputTokens: (toNumber(stats.outputTokens) ?? 0) + completionTokens,
-      totalCost: (toNumber(stats.totalCost) ?? 0) + calculatedCost,
+      outputTokens: (stats.outputTokens ?? 0) + completionTokens,
+      totalCost: (stats.totalCost ?? 0) + (calculatedCost ?? 0),
     };
     await saveStats(nextStats);
     // Check if any other runs are still streaming for this model
@@ -957,9 +999,9 @@ async function requestCompletionForModel(
       });
       if (result.usage) {
         const normalized = {
-          prompt_tokens: toNumber(result.usage.prompt_tokens),
-          completion_tokens: toNumber(result.usage.completion_tokens),
-          cost: toNumber(result.usage.cost),
+          prompt_tokens: result.usage.prompt_tokens,
+          completion_tokens: result.usage.completion_tokens,
+          cost: result.usage.cost,
         };
         usage = {
           prompt_tokens: normalized.prompt_tokens ?? usage.prompt_tokens,
@@ -967,16 +1009,15 @@ async function requestCompletionForModel(
             normalized.completion_tokens ?? usage.completion_tokens,
           cost: normalized.cost ?? usage.cost,
         };
-        if (!usage.cost && (usage.prompt_tokens || usage.completion_tokens)) {
-          const models = $models.get();
-          const modelInfo = models.find((m) => m.id === modelId);
-          usage.cost = calculateModelCostUsd({
-            pricing: modelInfo?.pricing,
-            promptTokens: usage.prompt_tokens ?? 0,
-            completionTokens: usage.completion_tokens ?? 0,
-            outputImages: assistantMessage.imageIds.length,
-          });
-        }
+        const resolvedCost = resolveCostUsd({
+          sessionId: session.id,
+          modelId,
+          usageCost: usage.cost,
+          promptTokens: usage.prompt_tokens ?? 0,
+          completionTokens: usage.completion_tokens ?? 0,
+          outputImages: assistantMessage.imageIds.length,
+        });
+        usage.cost = resolvedCost === null ? undefined : resolvedCost;
       }
       // Always set contentText, even if empty string
       assistantMessage.contentText = result.content.text ?? "";
@@ -1190,9 +1231,9 @@ async function requestCompletionForModel(
       },
       onUsage: (nextUsage) => {
         const normalized = {
-          prompt_tokens: toNumber(nextUsage.prompt_tokens),
-          completion_tokens: toNumber(nextUsage.completion_tokens),
-          cost: toNumber(nextUsage.cost),
+          prompt_tokens: nextUsage.prompt_tokens,
+          completion_tokens: nextUsage.completion_tokens,
+          cost: nextUsage.cost,
         };
         const hasCost =
           "cost" in nextUsage &&
@@ -1444,14 +1485,15 @@ async function requestCompletionForModel(
   }
 }
 
-function toNumber(value: unknown) {
-  if (typeof value === "number")
-    return Number.isFinite(value) ? value : undefined;
+function toNumber(value: unknown): number | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
   if (typeof value === "string" && value.trim()) {
     const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : undefined;
+    return Number.isFinite(parsed) ? parsed : null;
   }
-  return undefined;
+  return null;
 }
 
 export async function abortStream(modelId: string, runIndex?: number) {
@@ -1497,14 +1539,15 @@ export async function abortStream(modelId: string, runIndex?: number) {
 export async function removeMessageFromModel(
   modelId: string,
   messageId: string,
-  runIndex?: number,
+  _runIndex?: number,
 ) {
   const session = $activeSession.get().session;
   if (!session) return;
+  void _runIndex;
 
-  // Each run has its own copies of messages, so delete messages for the specified run
-  // If runIndex is not specified, delete for all runs (legacy support)
-  await deleteMessagesAfter(session.id, modelId, messageId, runIndex);
+  // Message IDs are unique; deleting by ID is precise and non-destructive.
+  await deleteMessage(messageId);
+  cleanupImagesDebounced();
 
   const remaining = await getMessages(session.id, modelId);
   const state = $activeSession.get();
@@ -1524,37 +1567,59 @@ export async function rerunLastAssistantMessage(modelId: string) {
   const messages = state.messagesByModel[modelId] ?? [];
   if (messages.length === 0) return;
 
-  // Find the last assistant message
-  let lastAssistantIndex = -1;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i]?.role === "assistant") {
-      lastAssistantIndex = i;
-      break;
+  const normalizedRunIndex = (value: number | undefined) => value ?? 1;
+  const maxRunIndex = messages.reduce(
+    (acc, message) => Math.max(acc, normalizedRunIndex(message.runIndex)),
+    1,
+  );
+
+  const sourceRunIndex = maxRunIndex;
+  const sourceRunMessages = messages
+    .filter(
+      (message) => normalizedRunIndex(message.runIndex) === sourceRunIndex,
+    )
+    .slice()
+    .sort((a, b) => a.createdAt - b.createdAt);
+
+  const lastAssistantIndex = (() => {
+    for (let i = sourceRunMessages.length - 1; i >= 0; i--) {
+      if (sourceRunMessages[i]?.role === "assistant") return i;
     }
-  }
+    return -1;
+  })();
   if (lastAssistantIndex === -1) return;
 
-  const lastAssistantMessage = messages[lastAssistantIndex];
-  const hasMessageAfter = lastAssistantIndex < messages.length - 1;
+  const contextMessages = sourceRunMessages
+    .slice(0, lastAssistantIndex)
+    .filter((message) => message.status === "complete");
+  const nextRunIndex = maxRunIndex + 1;
 
-  if (hasMessageAfter) {
-    // If there's a message after the assistant (e.g., a user message),
-    // delete only the assistant message, keeping messages after it
-    await deleteMessage(lastAssistantMessage.id);
-  } else {
-    // If the assistant is the last message, delete it and everything after (nothing)
-    await deleteMessagesAfter(session.id, modelId, lastAssistantMessage.id);
+  const now = Date.now();
+  const copies: Message[] = contextMessages.map((message, idx) => ({
+    ...message,
+    id: createId("message"),
+    runIndex: nextRunIndex,
+    createdAt: now + idx,
+    updatedAt: now + idx,
+    firstTokenAt: undefined,
+    completedAt: undefined,
+    error: undefined,
+    status: "complete",
+  }));
+
+  if (copies.length > 0) {
+    await saveMessages(copies);
   }
 
-  // Reload messages and re-run completion
-  const updatedMessages = await getMessages(session.id, modelId);
+  const nextMessages = [...messages, ...copies].sort(
+    (a, b) => a.createdAt - b.createdAt,
+  );
   $activeSession.set({
     ...state,
-    messagesByModel: { ...state.messagesByModel, [modelId]: updatedMessages },
+    messagesByModel: { ...state.messagesByModel, [modelId]: nextMessages },
   });
 
-  // Re-run the completion
-  await requestCompletionForModel(session, modelId);
+  await requestCompletionForModel(session, modelId, nextRunIndex);
 }
 
 export async function ensureSessionLoaded() {

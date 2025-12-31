@@ -1,30 +1,27 @@
 import { useMemo, useState, useEffect } from "react";
 import { useStore } from "@nanostores/react";
 import styles from "./DefaultsView.module.scss";
-import { Button } from "../../components/ui/button";
-import { Input } from "../../components/ui/input";
-import { Textarea } from "../../components/ui/textarea";
-import { Checkbox } from "../../components/ui/checkbox";
-import { SelectPopover } from "../../components/ui/select-popover";
-import { Slider } from "../../components/ui/slider";
+import { Button } from "@components/ui/button";
+import { Input } from "@components/ui/input";
+import { Textarea } from "@components/ui/textarea";
+import { Checkbox } from "@components/ui/checkbox";
+import { SelectPopover } from "@components/ui/select-popover";
+import { Slider } from "@components/ui/slider";
 import {
   $defaults,
   loadDefaults,
   createDefault,
   updateDefault,
   deleteDefault,
-} from "../../stores/defaultsStore";
+} from "@stores/defaultsStore";
 import type { DefaultEntry } from "../../types/db";
 import type {
   GeminiImageSize,
   ImageAspectRatio,
 } from "../../types/imageGeneration";
 import { Trash2, Plus, Save, X } from "lucide-react";
-import {
-  setHeaderRightActions,
-  type HeaderAction,
-} from "../../stores/headerStore";
-import { $models } from "../../stores/modelsStore";
+import { setHeaderRightActions, type HeaderAction } from "@stores/headerStore";
+import { $models } from "@stores/modelsStore";
 import type { OpenRouterModel } from "../../types/openrouter";
 import { getModelsMatchingFilter, tryCompileModelFilter } from "./modelFilter";
 

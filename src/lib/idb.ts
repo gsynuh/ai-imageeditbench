@@ -6,6 +6,7 @@ import type {
   Message,
   SettingsState,
 } from "../types/db";
+import { addNotification } from "@stores/notificationsStore";
 import type { OpenRouterModel } from "../types/openrouter";
 
 const DB_NAME = "image-edit-bench";
@@ -64,21 +65,13 @@ function openDb(): Promise<IDBDatabase> {
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
         const oldVersion = event.oldVersion;
-        // This app does not require schema migration/back-compat. If the schema changes,
-        // we drop and recreate session-related stores.
+        // Non-destructive migration: ensure all stores exist without dropping them.
+        // This preserves data across schema versions.
         if (oldVersion < 6) {
-          const storesToDrop: string[] = [
-            "conversations", // legacy store name (pre-session terminology)
-            "sessions",
-            "messages",
-            "images",
-            "stats",
-          ];
-          storesToDrop.forEach((name) => {
-            if (db.objectStoreNames.contains(name)) {
-              db.deleteObjectStore(name);
-            }
-          });
+          // Drop legacy store if it exists from a very old version
+          if (db.objectStoreNames.contains("conversations")) {
+            db.deleteObjectStore("conversations");
+          }
         }
 
         // Ensure all stores exist
@@ -115,6 +108,11 @@ function openDb(): Promise<IDBDatabase> {
       request.onerror = () => reject(request.error);
       request.onblocked = () => {
         console.warn("[IndexedDB] Database upgrade blocked - close other tabs");
+        addNotification({
+          type: "warning",
+          message:
+            "Database upgrade is blocked. Please close any other tabs with this application open and refresh the page.",
+        });
       };
     });
   }
@@ -234,40 +232,29 @@ export async function deleteSession(id: string): Promise<void> {
       "readwrite",
     );
     const sessionStore = tx.objectStore("sessions");
-    const messageStore = tx.objectStore("messages");
-    const statsStore = tx.objectStore("stats");
-    const imageStore = tx.objectStore("images");
     sessionStore.delete(id);
-    const imageIdsToDelete = new Set<string>();
-    const imageIdsInUse = new Set<string>();
-    const request = messageStore.openCursor();
-    request.onsuccess = () => {
-      const cursor = request.result;
-      if (!cursor) {
-        imageIdsToDelete.forEach((imageId) => {
-          if (!imageIdsInUse.has(imageId)) {
-            imageStore.delete(imageId);
-          }
-        });
-        return;
-      }
-      const message = cursor.value as Message;
-      if (message.sessionId === id) {
-        message.imageIds.forEach((imageId) => imageIdsToDelete.add(imageId));
+
+    const messageStore = tx.objectStore("messages");
+    const messageIndex = messageStore.index("sessionId");
+    const messageRequest = messageIndex.openCursor(id);
+    messageRequest.onsuccess = () => {
+      const cursor = messageRequest.result;
+      if (cursor) {
         cursor.delete();
-      } else {
-        message.imageIds.forEach((imageId) => imageIdsInUse.add(imageId));
+        cursor.continue();
       }
-      cursor.continue();
     };
+
+    const statsStore = tx.objectStore("stats");
     const statsRequest = statsStore.openCursor();
     statsRequest.onsuccess = () => {
       const cursor = statsRequest.result;
-      if (!cursor) return;
-      if ((cursor.value as SessionStats).sessionId === id) {
-        cursor.delete();
+      if (cursor) {
+        if ((cursor.value as SessionStats).sessionId === id) {
+          cursor.delete();
+        }
+        cursor.continue();
       }
-      cursor.continue();
     };
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
@@ -312,40 +299,11 @@ export async function getMessages(
 export async function deleteMessage(messageId: string): Promise<void> {
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(["messages", "images"], "readwrite");
+    const tx = db.transaction(["messages"], "readwrite");
     const messageStore = tx.objectStore("messages");
-    const imageStore = tx.objectStore("images");
-    const request = messageStore.get(messageId);
-    request.onsuccess = () => {
-      const message = request.result as Message | undefined;
-      if (!message) return;
-
-      const imageIdsToDelete = new Set<string>(message.imageIds);
-      const imageIdsInUse = new Set<string>();
-      const cursorRequest = messageStore.openCursor();
-      cursorRequest.onsuccess = () => {
-        const cursor = cursorRequest.result;
-        if (!cursor) {
-          imageIdsToDelete.forEach((imageId) => {
-            if (!imageIdsInUse.has(imageId)) {
-              imageStore.delete(imageId);
-            }
-          });
-          messageStore.delete(messageId);
-          return;
-        }
-        const otherMessage = cursor.value as Message;
-        if (otherMessage.id !== messageId) {
-          otherMessage.imageIds.forEach((imageId) =>
-            imageIdsInUse.add(imageId),
-          );
-        }
-        cursor.continue();
-      };
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    };
-    request.onerror = () => reject(request.error);
+    messageStore.delete(messageId);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
   });
 }
 
@@ -361,7 +319,7 @@ export async function deleteMessagesAfter(
 
   // If runIndex is specified, only delete messages for that run
   // Otherwise, delete all messages after the specified message
-  const messagesAfter = messages.slice(index);
+  const messagesAfter = messages.slice(index + 1);
   const toDelete =
     runIndex !== undefined
       ? messagesAfter.filter((msg) => msg.runIndex === runIndex)
@@ -369,38 +327,11 @@ export async function deleteMessagesAfter(
 
   if (toDelete.length === 0) return;
 
-  const messageIdsToDelete = new Set<string>(toDelete.map((m) => m.id));
-  const imageIdsToDelete = new Set<string>();
-  toDelete.forEach((message) => {
-    message.imageIds.forEach((imageId) => imageIdsToDelete.add(imageId));
-  });
-
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(["messages", "images"], "readwrite");
+    const tx = db.transaction(["messages"], "readwrite");
     const messageStore = tx.objectStore("messages");
-    const imageStore = tx.objectStore("images");
-    const imageIdsInUse = new Set<string>();
-    const cursorRequest = messageStore.openCursor();
-    cursorRequest.onsuccess = () => {
-      const cursor = cursorRequest.result;
-      if (!cursor) {
-        toDelete.forEach((message) => {
-          messageStore.delete(message.id);
-        });
-        imageIdsToDelete.forEach((imageId) => {
-          if (!imageIdsInUse.has(imageId)) {
-            imageStore.delete(imageId);
-          }
-        });
-        return;
-      }
-      const message = cursor.value as Message;
-      if (!messageIdsToDelete.has(message.id)) {
-        message.imageIds.forEach((imageId) => imageIdsInUse.add(imageId));
-      }
-      cursor.continue();
-    };
+    toDelete.forEach((message) => messageStore.delete(message.id));
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
@@ -480,6 +411,46 @@ export async function clearAllStorage(): Promise<void> {
       store.clear();
     });
     tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function cleanupOrphanedImages(): Promise<number> {
+  const db = await openDb();
+  return new Promise<number>((resolve, reject) => {
+    const tx = db.transaction(["messages", "images"], "readwrite");
+    const messageStore = tx.objectStore("messages");
+    const imageStore = tx.objectStore("images");
+
+    const referenced = new Set<string>();
+    let deletedCount = 0;
+
+    const messagesCursor = messageStore.openCursor();
+    messagesCursor.onsuccess = () => {
+      const cursor = messagesCursor.result;
+      if (!cursor) {
+        const imagesCursor = imageStore.openCursor();
+        imagesCursor.onsuccess = () => {
+          const imageCursor = imagesCursor.result;
+          if (!imageCursor) return;
+          const asset = imageCursor.value as ImageAsset;
+          if (!referenced.has(asset.id)) {
+            imageCursor.delete();
+            deletedCount += 1;
+          }
+          imageCursor.continue();
+        };
+        imagesCursor.onerror = () => reject(imagesCursor.error);
+        return;
+      }
+
+      const message = cursor.value as Message;
+      message.imageIds.forEach((imageId) => referenced.add(imageId));
+      cursor.continue();
+    };
+    messagesCursor.onerror = () => reject(messagesCursor.error);
+
+    tx.oncomplete = () => resolve(deletedCount);
     tx.onerror = () => reject(tx.error);
   });
 }

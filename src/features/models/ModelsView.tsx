@@ -19,22 +19,22 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical } from "lucide-react";
 import styles from "./ModelsView.module.scss";
-import { Button } from "../../components/ui/button";
-import { Input } from "../../components/ui/input";
-import { Checkbox } from "../../components/ui/checkbox";
-import { SelectPopover } from "../../components/ui/select-popover";
+import { Button } from "@components/ui/button";
+import { Input } from "@components/ui/input";
+import { Checkbox } from "@components/ui/checkbox";
+import { SelectPopover } from "@components/ui/select-popover";
 import {
   $settings,
   setSelectedModels,
   toggleModelSelection,
   updateApiKey,
-} from "../../stores/settingsStore";
+} from "@stores/settingsStore";
 import {
   $models,
   $modelsError,
   $modelsStatus,
   fetchModels,
-} from "../../stores/modelsStore";
+} from "@stores/modelsStore";
 import { inferModelCapabilities } from "../../lib/modelMeta";
 
 interface SortableModelItemProps {
